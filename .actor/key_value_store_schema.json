@@ -1,16 +1,16 @@
 {
 	"actorKeyValueStoreSchemaVersion": 1,
-	"title": "Instagram Public Activity History Key-Value Store",
+	"title": "Instagram Public Comment Hunter Key-Value Store",
 	"collections": {
 		"runSummary": {
 			"title": "Run summary",
-			"description": "User-facing run summary for the latest lookup, including per-surface coverage, confidence, historical observation counts, and warnings.",
+			"description": "User-facing comment-hunt summary for the latest lookup, including comments-first coverage, supporting-surface coverage, historical observation counts, and warnings.",
 			"key": "RUN_SUMMARY",
 			"contentTypes": ["application/json"]
 		},
 		"ambiguousCommentCandidates": {
 			"title": "Ambiguous comment candidates",
-			"description": "Comment-like username matches that were kept separate from confirmed comment results.",
+			"description": "Comment-like username matches that were kept separate from confirmed public comment results.",
 			"key": "AMBIGUOUS_COMMENT_CANDIDATES",
 			"contentTypes": ["application/json"]
 		}

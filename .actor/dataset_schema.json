@@ -86,7 +86,7 @@
 	},
 	"views": {
 		"overview": {
-			"title": "Public activity history",
+			"title": "Public comment hunt results",
 			"transformation": {
 				"fields": [
 					"type",
@@ -154,7 +154,7 @@
 						"label": "Comment text"
 					},
 					"appearanceText": {
-						"label": "Appearance text"
+						"label": "Supporting text"
 					},
 					"matchReason": {
 						"label": "Match reason"

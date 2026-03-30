@@ -2,8 +2,8 @@
 	"$schema": "https://apify.com/schemas/v1/actor.ide.json",
 	"actorSpecification": 1,
 	"name": "instagram-public-comment-discovery",
-	"title": "Instagram Public Activity History",
-	"description": "Comments-first, best-effort public Instagram activity lookup for a username, with experimental likes and supporting mention/tagged signals.",
+	"title": "Instagram Public Comment Hunter (Beta)",
+	"description": "Comments-first, best-effort public Instagram comment discovery by username, including public traces from private accounts on public posts. Secondary likes, mention, and tagged signals remain experimental/supporting.",
 	"version": "0.1.0",
 	"buildTag": "latest",
 	"meta": {

@@ -1,20 +1,20 @@
 {
 	"actorOutputSchemaVersion": 1,
-	"title": "Instagram Public Activity History Output",
+	"title": "Instagram Public Comment Hunter Output",
 	"properties": {
 		"activityEvents": {
 			"type": "string",
-			"title": "Activity events dataset",
+			"title": "Comments-first activity dataset",
 			"template": "{{links.apiDefaultDatasetUrl}}/items"
 		},
 		"runSummary": {
 			"type": "string",
-			"title": "Run summary and coverage",
+			"title": "Comment-hunt run summary",
 			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/RUN_SUMMARY"
 		},
 		"ambiguousCommentCandidates": {
 			"type": "string",
-			"title": "Ambiguous comment candidates",
+			"title": "Ambiguous comment bucket",
 			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/AMBIGUOUS_COMMENT_CANDIDATES"
 		}
 	}

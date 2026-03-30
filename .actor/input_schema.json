@@ -1,12 +1,12 @@
 {
-	"title": "Instagram Public Activity History Input",
+	"title": "Instagram Public Comment Hunter Input",
 	"type": "object",
 	"schemaVersion": 1,
 	"properties": {
 		"username": {
 			"title": "Target username",
 			"type": "string",
-			"description": "Public Instagram username to inspect. No Instagram login is required in the default public flow. The Actor accepts plain usernames with or without a leading @ and returns best-effort public activity results.",
+			"description": "Instagram username to investigate. No Instagram login is required in the default public beta flow. The Actor accepts plain usernames with or without a leading @ and searches for best-effort public comment traces, including traces left by private accounts on public posts when discoverable.",
 			"pattern": "^@?[A-Za-z0-9._]+$",
 			"editor": "textfield",
 			"prefill": "nasa"
