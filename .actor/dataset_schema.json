@@ -1,0 +1,115 @@
+{
+	"actorSpecification": 1,
+	"fields": {
+		"type": {
+			"type": "string"
+		},
+		"targetUsername": {
+			"type": "string"
+		},
+		"resolvedUsername": {
+			"type": "string"
+		},
+		"commentOwnerUsername": {
+			"type": "string"
+		},
+		"commentText": {
+			"type": "string"
+		},
+		"createdAt": {
+			"type": ["string", "null"],
+			"format": "date-time"
+		},
+		"createdAtLabel": {
+			"type": ["string", "null"]
+		},
+		"commentPermalink": {
+			"type": "string"
+		},
+		"postUrl": {
+			"type": "string"
+		},
+		"postShortcode": {
+			"type": "string"
+		},
+		"postOwnerUsername": {
+			"type": "string"
+		},
+		"sourceSurface": {
+			"type": "string"
+		},
+		"sourceUrl": {
+			"type": "string"
+		},
+		"discoverySource": {
+			"type": "string"
+		},
+		"discoveredViaUsername": {
+			"type": ["string", "null"]
+		},
+		"matchConfidence": {
+			"type": "string"
+		},
+		"matchReason": {
+			"type": "string"
+		}
+	},
+	"views": {
+		"overview": {
+			"title": "Matched comments",
+			"transformation": {
+				"fields": [
+					"createdAt",
+					"targetUsername",
+					"commentOwnerUsername",
+					"commentText",
+					"commentPermalink",
+					"postUrl",
+					"postOwnerUsername",
+					"discoverySource",
+					"discoveredViaUsername",
+					"matchConfidence"
+				],
+				"desc": true
+			},
+			"display": {
+				"component": "table",
+				"properties": {
+					"createdAt": {
+						"label": "Created at",
+						"format": "date"
+					},
+					"targetUsername": {
+						"label": "Target"
+					},
+					"commentOwnerUsername": {
+						"label": "Comment owner"
+					},
+					"commentText": {
+						"label": "Comment text"
+					},
+					"commentPermalink": {
+						"label": "Comment permalink",
+						"format": "link"
+					},
+					"postUrl": {
+						"label": "Post",
+						"format": "link"
+					},
+					"postOwnerUsername": {
+						"label": "Post owner"
+					},
+					"discoverySource": {
+						"label": "Discovery source"
+					},
+					"discoveredViaUsername": {
+						"label": "Discovered via"
+					},
+					"matchConfidence": {
+						"label": "Confidence"
+					}
+				}
+			}
+		}
+	}
+}

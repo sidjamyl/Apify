@@ -1,0 +1,12 @@
+{
+	"actorKeyValueStoreSchemaVersion": 1,
+	"title": "Instagram Public Comment Discovery Key-Value Store",
+	"collections": {
+		"runSummary": {
+			"title": "Run summary",
+			"description": "Normalized status, target snapshot, counts, coverage, and warnings for the current run.",
+			"key": "RUN_SUMMARY",
+			"contentTypes": ["application/json"]
+		}
+	}
+}

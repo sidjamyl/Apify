@@ -1,0 +1,16 @@
+{
+	"actorOutputSchemaVersion": 1,
+	"title": "Instagram Public Comment Discovery Output",
+	"properties": {
+		"comments": {
+			"type": "string",
+			"title": "Matched comment events",
+			"template": "{{links.apiDefaultDatasetUrl}}/items"
+		},
+		"runSummary": {
+			"type": "string",
+			"title": "Run summary",
+			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/RUN_SUMMARY"
+		}
+	}
+}

@@ -1,0 +1,16 @@
+{
+	"title": "Instagram Public Comment Discovery Input",
+	"type": "object",
+	"schemaVersion": 1,
+	"properties": {
+		"username": {
+			"title": "Instagram username",
+			"type": "string",
+			"description": "Instagram username to inspect. The Actor accepts plain usernames with or without a leading @.",
+			"pattern": "^@?[A-Za-z0-9._]+$",
+			"editor": "textfield",
+			"prefill": "nasa"
+		}
+	},
+	"required": ["username"]
+}

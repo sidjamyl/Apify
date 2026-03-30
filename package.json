@@ -1,0 +1,40 @@
+{
+	"name": "instagram-public-comment-discovery",
+	"version": "0.0.1",
+	"type": "module",
+	"description": "Best-effort Instagram public comment discovery Actor.",
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"dependencies": {
+		"@crawlee/cheerio": "^3.15.3",
+		"apify": "^3.7.0",
+		"playwright": "*"
+	},
+	"devDependencies": {
+		"@apify/eslint-config": "^1.0.0",
+		"@apify/tsconfig": "^0.1.1",
+		"@types/node": "^24.0.0",
+		"eslint": "^9.29.0",
+		"eslint-config-prettier": "^10.1.5",
+		"globals": "^17.0.0",
+		"prettier": "^3.5.3",
+		"tsx": "^4.20.3",
+		"typescript": "^5.9.3",
+		"typescript-eslint": "^8.34.1",
+		"vitest": "^4.1.0"
+	},
+	"scripts": {
+		"start": "npm run start:dev",
+		"start:prod": "node dist/main.js",
+		"start:dev": "tsx src/main.ts",
+		"build": "tsc",
+		"lint": "eslint",
+		"lint:fix": "eslint --fix",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"test": "vitest run"
+	},
+	"author": "sidjamyl",
+	"license": "ISC"
+}
