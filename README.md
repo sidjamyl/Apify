@@ -1,12 +1,13 @@
 # Instagram Public Comment Discovery
 
-Best-effort Apify Actor for `#5`: start from a single Instagram username, resolve the public target profile, inspect directly reachable recent public post surfaces, and return matched public comments, visible replies, caption mentions, and tagged appearances involving that target.
+Best-effort Apify Actor for `#4`: start from a single Instagram username, resolve the public target profile, inspect directly reachable recent public post surfaces, and return matched public comments, visible replies, experimental liked-content signals, caption mentions, and tagged appearances involving that target.
 
 ## Current scope
 
 - Public-only
 - Username-only input
 - Comments and replies when visible
+- Liked content only when Instagram exposes attributable public liker usernames on scanned public surfaces
 - Mentions and tagged appearances as supporting surfaces
 - Exact username matching on visible public comment blocks, with ambiguous near-matches flagged separately in the run summary
 - Structured dataset items plus a `RUN_SUMMARY` record in the default key-value store
@@ -26,6 +27,7 @@ For each candidate post, the Actor:
 - keeps comments or replies whose visible author username matches the resolved target username exactly
 - scans non-owned candidate posts for exact caption mentions of the target username
 - scans non-owned candidate posts for exact tagged-user appearances of the target username
+- scans non-owned candidate posts for exact attributable public liker-username signals when Instagram exposes them
 
 ## Important limitations
 
@@ -35,6 +37,7 @@ For each candidate post, the Actor:
 - If a browser runtime is unavailable, the Actor returns a partial-coverage summary instead of failing the whole run.
 - Replies are included only when Instagram exposes them in the public visible thread.
 - Mention and tagged coverage is limited to the candidate-post discovery scope already available to the Actor.
+- Liked-content recovery is the weakest surface in the Actor and is explicitly experimental, best-effort, and non-exhaustive.
 - Ambiguous near-matches are flagged in the run summary and are not blended into confirmed results.
 - Likes, mentions/tagged output, and tombstones are out of scope for this issue and will be added in later issues.
 
@@ -42,7 +45,7 @@ For each candidate post, the Actor:
 
 Dataset items contain matched comment events.
 
-The dataset now also includes `mention` and `tagged_appearance` events as distinct activity types.
+The dataset now also includes `liked_content`, `mention`, and `tagged_appearance` events as distinct activity types.
 
 `RUN_SUMMARY` contains:
 
@@ -52,6 +55,7 @@ The dataset now also includes `mention` and `tagged_appearance` events as distin
 - counts
 - comments coverage and scan state
 - comments confidence summary and ambiguous candidate samples
+- liked-content coverage and confidence reported separately from comments
 - mention/tagged coverage reported separately from comments
 - warnings
 

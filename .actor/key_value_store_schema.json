@@ -4,7 +4,7 @@
 	"collections": {
 		"runSummary": {
 			"title": "Run summary",
-			"description": "Normalized status, target snapshot, comment coverage, mention/tagged coverage, confidence, counts, and warnings for the current run.",
+			"description": "Normalized status, target snapshot, comment coverage, liked-content coverage, mention/tagged coverage, confidence, counts, and warnings for the current run.",
 			"key": "RUN_SUMMARY",
 			"contentTypes": ["application/json"]
 		}

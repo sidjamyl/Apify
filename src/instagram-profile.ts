@@ -52,6 +52,8 @@ interface RawInstagramNode {
     owner?: {
         username?: string;
     };
+    edge_liked_by?: Record<string, unknown>;
+    edge_media_preview_like?: Record<string, unknown>;
     coauthor_producers?: {
         username?: string;
     }[];
@@ -64,6 +66,34 @@ interface RawInstagramNode {
             };
         }[];
     };
+}
+
+function collectNestedUsernames(value: unknown): string[] {
+    const usernames = new Set<string>();
+
+    const visit = (node: unknown): void => {
+        if (!node) return;
+
+        if (Array.isArray(node)) {
+            for (const item of node) visit(item);
+            return;
+        }
+
+        if (typeof node !== 'object') return;
+
+        const record = node as Record<string, unknown>;
+        const { username } = record;
+        if (typeof username === 'string' && username.length > 0) {
+            usernames.add(username.toLowerCase());
+        }
+
+        for (const nestedValue of Object.values(record)) {
+            visit(nestedValue);
+        }
+    };
+
+    visit(value);
+    return [...usernames];
 }
 
 export interface TargetResolutionResult {
@@ -98,6 +128,13 @@ function mapPosts(
         const coauthorUsernames = (edge.node.coauthor_producers ?? [])
             .map((coauthor) => coauthor.username?.toLowerCase())
             .filter((username): username is string => Boolean(username));
+        const discoverableLikerUsernames = dedupeByKey(
+            [
+                ...collectNestedUsernames(edge.node.edge_media_preview_like),
+                ...collectNestedUsernames(edge.node.edge_liked_by),
+            ],
+            (username) => username,
+        );
 
         return {
             id: edge.node.id,
@@ -108,6 +145,7 @@ function mapPosts(
             mentionedUsernames,
             taggedUsernames,
             coauthorUsernames,
+            discoverableLikerUsernames,
             takenAtTimestamp: edge.node.taken_at_timestamp ?? null,
             discoverySource,
             discoveredViaUsername,

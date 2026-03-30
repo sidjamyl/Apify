@@ -11,6 +11,7 @@ import {
     parseCommentTextFromBlock,
 } from '../src/comment-utils.js';
 import { normalizeUsername, parseInput } from '../src/input.js';
+import { scanLikedContentAppearances } from '../src/liked-content-scan.js';
 import { scanMentionTaggedAppearances } from '../src/mention-tagged-scan.js';
 
 describe('input parsing', () => {
@@ -114,6 +115,7 @@ describe('mention and tagged scan', () => {
                     mentionedUsernames: ['nasa'],
                     taggedUsernames: ['nasa'],
                     coauthorUsernames: [],
+                    discoverableLikerUsernames: [],
                     takenAtTimestamp: 1700000000,
                     discoverySource: 'related_profile',
                     discoveredViaUsername: 'esa',
@@ -127,6 +129,7 @@ describe('mention and tagged scan', () => {
                     mentionedUsernames: ['nasa'],
                     taggedUsernames: ['nasa'],
                     coauthorUsernames: [],
+                    discoverableLikerUsernames: [],
                     takenAtTimestamp: 1700000001,
                     discoverySource: 'target_profile',
                     discoveredViaUsername: null,
@@ -137,5 +140,75 @@ describe('mention and tagged scan', () => {
         expect(result.scannedPosts).toBe(1);
         expect(result.events.map((event) => event.type)).toEqual(['mention', 'tagged_appearance']);
         expect(result.events.every((event) => event.postShortcode === 'abc')).toBe(true);
+    });
+});
+
+describe('liked content scan', () => {
+    it('emits confirmed liked-content events and separates ambiguous signals', () => {
+        const result = scanLikedContentAppearances({
+            resolvedUsername: 'john.doe',
+            candidatePosts: [
+                {
+                    id: '1',
+                    shortcode: 'abc',
+                    url: 'https://www.instagram.com/p/abc/',
+                    ownerUsername: 'esa',
+                    caption: 'A public post',
+                    mentionedUsernames: [],
+                    taggedUsernames: [],
+                    coauthorUsernames: [],
+                    discoverableLikerUsernames: ['john.doe', 'john_doe'],
+                    takenAtTimestamp: 1700000000,
+                    discoverySource: 'related_profile',
+                    discoveredViaUsername: 'esa',
+                },
+                {
+                    id: '2',
+                    shortcode: 'def',
+                    url: 'https://www.instagram.com/p/def/',
+                    ownerUsername: 'nasa',
+                    caption: 'Another public post',
+                    mentionedUsernames: [],
+                    taggedUsernames: [],
+                    coauthorUsernames: [],
+                    discoverableLikerUsernames: ['john_doe'],
+                    takenAtTimestamp: 1700000001,
+                    discoverySource: 'related_profile',
+                    discoveredViaUsername: 'nasa',
+                },
+            ],
+        });
+
+        expect(result.scannedPosts).toBe(2);
+        expect(result.discoverableSignals).toBe(2);
+        expect(result.events.map((event) => event.type)).toEqual(['liked_content']);
+        expect(result.events[0]?.postShortcode).toBe('abc');
+        expect(result.ambiguousCandidates.length).toBe(1);
+        expect(result.ambiguousCandidates[0]?.likerUsername).toBe('john_doe');
+    });
+
+    it('warns when no attributable public liker usernames are exposed', () => {
+        const result = scanLikedContentAppearances({
+            resolvedUsername: 'nasa',
+            candidatePosts: [
+                {
+                    id: '1',
+                    shortcode: 'abc',
+                    url: 'https://www.instagram.com/p/abc/',
+                    ownerUsername: 'esa',
+                    caption: 'A public post',
+                    mentionedUsernames: [],
+                    taggedUsernames: [],
+                    coauthorUsernames: [],
+                    discoverableLikerUsernames: [],
+                    takenAtTimestamp: 1700000000,
+                    discoverySource: 'related_profile',
+                    discoveredViaUsername: 'esa',
+                },
+            ],
+        });
+
+        expect(result.events).toHaveLength(0);
+        expect(result.warnings.some((warning) => warning.includes('No attributable public liker usernames'))).toBe(true);
     });
 });

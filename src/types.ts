@@ -11,7 +11,7 @@ export type ScanState = 'complete' | 'low_coverage' | 'partial_failure';
 export type DiscoverySource = 'target_profile' | 'related_profile';
 export type MatchConfidence = 'exact_username_visible';
 export type CommentKind = 'top_level' | 'reply';
-export type AppearanceType = 'comment' | 'mention' | 'tagged_appearance';
+export type AppearanceType = 'comment' | 'mention' | 'tagged_appearance' | 'liked_content';
 
 export interface ActorInput {
     username: string;
@@ -26,6 +26,7 @@ export interface InstagramPost {
     mentionedUsernames: string[];
     taggedUsernames: string[];
     coauthorUsernames: string[];
+    discoverableLikerUsernames: string[];
     takenAtTimestamp: number | null;
     discoverySource: DiscoverySource;
     discoveredViaUsername: string | null;
@@ -99,7 +100,24 @@ export interface TaggedAppearanceEvent {
     matchReason: string;
 }
 
-export type AppearanceEvent = CommentEvent | MentionEvent | TaggedAppearanceEvent;
+export interface LikedContentEvent {
+    type: 'liked_content';
+    targetUsername: string;
+    resolvedUsername: string;
+    appearanceText: string | null;
+    createdAt: string | null;
+    postUrl: string;
+    postShortcode: string;
+    postOwnerUsername: string;
+    sourceSurface: 'instagram_post_public_like_signal';
+    sourceUrl: string;
+    discoverySource: DiscoverySource;
+    discoveredViaUsername: string | null;
+    matchConfidence: MatchConfidence;
+    matchReason: string;
+}
+
+export type AppearanceEvent = CommentEvent | MentionEvent | TaggedAppearanceEvent | LikedContentEvent;
 
 export interface CoverageSummary {
     level: CoverageLevel;
@@ -116,6 +134,16 @@ export interface AmbiguousCommentCandidate {
     createdAt: string | null;
     createdAtLabel: string | null;
     commentPermalink: string;
+    postUrl: string;
+    postShortcode: string;
+    postOwnerUsername: string;
+    discoverySource: DiscoverySource;
+    discoveredViaUsername: string | null;
+    ambiguityReason: string;
+}
+
+export interface AmbiguousLikedContentCandidate {
+    likerUsername: string;
     postUrl: string;
     postShortcode: string;
     postOwnerUsername: string;
@@ -158,6 +186,25 @@ export interface RunSummary {
         };
         warnings: string[];
     };
+    likedContent: {
+        coverage: CoverageSummary;
+        confidence: {
+            level: 'high' | 'medium' | 'low' | 'unknown';
+            reason: string;
+            exactMatches: number;
+            ambiguousCandidates: number;
+            ambiguousSamples: AmbiguousLikedContentCandidate[];
+        };
+        counts: {
+            scannedPosts: number;
+            discoverableSignals: number;
+            likedContentEvents: number;
+            ambiguousCandidates: number;
+            partialFailures: number;
+            warnings: number;
+        };
+        warnings: string[];
+    };
     counts: {
         candidateProfiles: number;
         candidatePosts: number;
@@ -167,6 +214,8 @@ export interface RunSummary {
         matchedReplies: number;
         mentionEvents: number;
         taggedAppearanceEvents: number;
+        likedContentEvents: number;
+        likedContentAmbiguousCandidates: number;
         ambiguousCandidates: number;
         partialFailures: number;
         warnings: number;
@@ -200,4 +249,13 @@ export interface MentionTaggedScanResult {
     partialFailures: number;
     warnings: string[];
     events: (MentionEvent | TaggedAppearanceEvent)[];
+}
+
+export interface LikedContentScanResult {
+    scannedPosts: number;
+    discoverableSignals: number;
+    partialFailures: number;
+    warnings: string[];
+    events: LikedContentEvent[];
+    ambiguousCandidates: AmbiguousLikedContentCandidate[];
 }

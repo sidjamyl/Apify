@@ -10,6 +10,7 @@ import {
 } from './comment-utils.js';
 import { parseInput } from './input.js';
 import { buildDiscoveryPlan, resolveTargetProfile } from './instagram-profile.js';
+import { scanLikedContentAppearances } from './liked-content-scan.js';
 import { scanMentionTaggedAppearances } from './mention-tagged-scan.js';
 import type { CoverageLevel, RunStatus, RunSummary, ScanState } from './types.js';
 
@@ -83,6 +84,29 @@ function buildNoScanSummary(input: {
             },
             warnings: [],
         },
+        likedContent: {
+            coverage: {
+                level: 'unknown',
+                scanState: 'partial_failure',
+                reason: 'Liked-content discovery was not attempted because the target could not be scanned successfully.',
+            },
+            confidence: {
+                level: 'unknown',
+                reason: 'Liked-content confidence cannot be evaluated because no public like-signal scan was completed.',
+                exactMatches: 0,
+                ambiguousCandidates: 0,
+                ambiguousSamples: [],
+            },
+            counts: {
+                scannedPosts: 0,
+                discoverableSignals: 0,
+                likedContentEvents: 0,
+                ambiguousCandidates: 0,
+                partialFailures: partialFailures > 0 ? 1 : 0,
+                warnings: 0,
+            },
+            warnings: [],
+        },
         counts: {
             candidateProfiles: isAvailable ? 1 : 0,
             candidatePosts: 0,
@@ -92,6 +116,8 @@ function buildNoScanSummary(input: {
             matchedReplies: 0,
             mentionEvents: 0,
             taggedAppearanceEvents: 0,
+            likedContentEvents: 0,
+            likedContentAmbiguousCandidates: 0,
             ambiguousCandidates: 0,
             partialFailures,
             warnings: warnings.length,
@@ -157,6 +183,58 @@ function computeMentionTaggedCoverage(input: {
         level: 'low',
         scanState: 'low_coverage',
         reason: 'Only a narrow public supporting-post sample was available for mention/tagged discovery.',
+    };
+}
+
+function computeLikedContentCoverage(input: {
+    scannedPosts: number;
+    discoverableSignals: number;
+    likedContentEvents: number;
+    partialFailures: number;
+}): { level: CoverageLevel; scanState: ScanState; reason: string } {
+    const {
+        scannedPosts,
+        discoverableSignals,
+        likedContentEvents,
+        partialFailures,
+    } = input;
+
+    if (partialFailures > 0) {
+        return {
+            level: 'low',
+            scanState: 'partial_failure',
+            reason: 'The liked-content branch encountered failures, so experimental like coverage is incomplete.',
+        };
+    }
+
+    if (scannedPosts === 0) {
+        return {
+            level: 'unknown',
+            scanState: 'low_coverage',
+            reason: 'No eligible non-owned candidate posts were available for liked-content discovery.',
+        };
+    }
+
+    if (discoverableSignals === 0) {
+        return {
+            level: 'unknown',
+            scanState: 'low_coverage',
+            reason: 'Instagram did not expose attributable public liker usernames on the scanned candidate posts.',
+        };
+    }
+
+    if (likedContentEvents > 0) {
+        return {
+            level: 'low',
+            scanState: 'complete',
+            reason: 'The Actor found attributable public liker signals, but this surface remains highly incomplete and experimental.',
+        };
+    }
+
+    return {
+        level: 'low',
+        scanState: 'low_coverage',
+        reason: 'Attributable public liker signals were scanned, but none matched the resolved target exactly.',
     };
 }
 
@@ -229,12 +307,20 @@ async function run(): Promise<void> {
         candidatePosts: discoveryPlan.candidatePosts,
         resolvedUsername: resolvedTarget.username,
     });
+    const likedContentScanResult = scanLikedContentAppearances({
+        candidatePosts: discoveryPlan.candidatePosts,
+        resolvedUsername: resolvedTarget.username,
+    });
     const mentionTaggedScanResult = scanMentionTaggedAppearances({
         candidatePosts: discoveryPlan.candidatePosts,
         resolvedUsername: resolvedTarget.username,
     });
 
-    const allEvents = [...commentScanResult.events, ...mentionTaggedScanResult.events].sort((left, right) => {
+    const allEvents = [
+        ...commentScanResult.events,
+        ...likedContentScanResult.events,
+        ...mentionTaggedScanResult.events,
+    ].sort((left, right) => {
         const leftTimestamp = left.createdAt ? Date.parse(left.createdAt) : 0;
         const rightTimestamp = right.createdAt ? Date.parse(right.createdAt) : 0;
         return rightTimestamp - leftTimestamp;
@@ -254,6 +340,17 @@ async function run(): Promise<void> {
         browserAvailable: commentScanResult.browserAvailable,
         partialFailures: commentScanResult.partialFailures,
         coverageLevel,
+    });
+    const likedContentEvents = likedContentScanResult.events.length;
+    const likedContentConfidenceLevel = computeConfidenceLevel({
+        exactMatches: likedContentEvents,
+        ambiguousCandidates: likedContentScanResult.ambiguousCandidates.length,
+    });
+    const likedContentCoverage = computeLikedContentCoverage({
+        scannedPosts: likedContentScanResult.scannedPosts,
+        discoverableSignals: likedContentScanResult.discoverableSignals,
+        likedContentEvents,
+        partialFailures: likedContentScanResult.partialFailures,
     });
     const mentionEvents = mentionTaggedScanResult.events.filter((event) => event.type === 'mention').length;
     const taggedAppearanceEvents = mentionTaggedScanResult.events.filter((event) => event.type === 'tagged_appearance').length;
@@ -317,16 +414,32 @@ async function run(): Promise<void> {
         return 'No confirmed or ambiguous comment matches were found in the inspected visible thread scope.';
     })();
 
+    const likedContentConfidenceReason = (() => {
+        if (likedContentEvents > 0 && likedContentScanResult.ambiguousCandidates.length === 0) {
+            return 'All liked-content matches in this run came from exact attributable public liker-username signals.';
+        }
+
+        if (likedContentEvents > 0 && likedContentScanResult.ambiguousCandidates.length > 0) {
+            return 'Confirmed liked-content matches used exact attributable public liker-username signals, and similar near-matches were flagged separately as ambiguous.';
+        }
+
+        if (likedContentScanResult.ambiguousCandidates.length > 0) {
+            return 'No confirmed liked-content matches were found, but similar public liker usernames were flagged separately as ambiguous.';
+        }
+
+        return 'No attributable public liker usernames were confirmed for the resolved target in the scanned public surfaces.';
+    })();
+
     const warnings = [...targetResolution.warnings, ...discoveryPlan.warnings, ...commentScanResult.warnings];
     const summary: RunSummary = {
         status,
         message: (() => {
             if (status === 'resolved_with_results') {
-                return `Resolved @${resolvedTarget.username} and found ${allEvents.length} public activity events across comments, mentions, and tagged appearances.`;
+                return `Resolved @${resolvedTarget.username} and found ${allEvents.length} public activity events across comments, liked content, mentions, and tagged appearances.`;
             }
 
             if (status === 'resolved_no_results') {
-                return `Resolved @${resolvedTarget.username}, but found no public comments, mentions, or tagged appearances in the inspected discovery scope.`;
+                return `Resolved @${resolvedTarget.username}, but found no public comments, liked-content signals, mentions, or tagged appearances in the inspected discovery scope.`;
             }
 
             return `Resolved @${resolvedTarget.username}, but comment discovery completed with partial coverage.`;
@@ -362,6 +475,25 @@ async function run(): Promise<void> {
             },
             warnings: mentionTaggedScanResult.warnings,
         },
+        likedContent: {
+            coverage: likedContentCoverage,
+            confidence: {
+                level: likedContentConfidenceLevel,
+                reason: likedContentConfidenceReason,
+                exactMatches: likedContentEvents,
+                ambiguousCandidates: likedContentScanResult.ambiguousCandidates.length,
+                ambiguousSamples: likedContentScanResult.ambiguousCandidates,
+            },
+            counts: {
+                scannedPosts: likedContentScanResult.scannedPosts,
+                discoverableSignals: likedContentScanResult.discoverableSignals,
+                likedContentEvents,
+                ambiguousCandidates: likedContentScanResult.ambiguousCandidates.length,
+                partialFailures: likedContentScanResult.partialFailures,
+                warnings: likedContentScanResult.warnings.length,
+            },
+            warnings: likedContentScanResult.warnings,
+        },
         counts: {
             candidateProfiles: discoveryPlan.candidateProfiles,
             candidatePosts: discoveryPlan.candidatePosts.length,
@@ -371,17 +503,19 @@ async function run(): Promise<void> {
             matchedReplies,
             mentionEvents,
             taggedAppearanceEvents,
+            likedContentEvents,
+            likedContentAmbiguousCandidates: likedContentScanResult.ambiguousCandidates.length,
             ambiguousCandidates: commentScanResult.ambiguousCandidates.length,
-            partialFailures: commentScanResult.partialFailures + mentionTaggedScanResult.partialFailures,
-            warnings: warnings.length + mentionTaggedScanResult.warnings.length,
+            partialFailures: commentScanResult.partialFailures + mentionTaggedScanResult.partialFailures + likedContentScanResult.partialFailures,
+            warnings: warnings.length + mentionTaggedScanResult.warnings.length + likedContentScanResult.warnings.length,
         },
-        warnings: [...warnings, ...mentionTaggedScanResult.warnings],
+        warnings: [...warnings, ...likedContentScanResult.warnings, ...mentionTaggedScanResult.warnings],
     };
 
     await Actor.setValue('RUN_SUMMARY', summary);
     log.info(summary.message);
-    if (warnings.length > 0) {
-        log.warning(`Run completed with ${warnings.length} warning(s).`);
+    if (summary.warnings.length > 0) {
+        log.warning(`Run completed with ${summary.warnings.length} warning(s).`);
     }
 }
 
