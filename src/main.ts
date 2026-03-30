@@ -8,6 +8,13 @@ import {
     computeCoverageLevel,
     computeScanState,
 } from './comment-utils.js';
+import {
+    loadTargetHistoryState,
+    mergeHistoricalObservations,
+    openTargetHistoryStore,
+    saveTargetHistoryState,
+    TARGET_HISTORY_STORE_NAME,
+} from './history-state.js';
 import { parseInput } from './input.js';
 import { buildDiscoveryPlan, resolveTargetProfile } from './instagram-profile.js';
 import { scanLikedContentAppearances } from './liked-content-scan.js';
@@ -106,6 +113,16 @@ function buildNoScanSummary(input: {
                 warnings: 0,
             },
             warnings: [],
+        },
+        history: {
+            storeName: TARGET_HISTORY_STORE_NAME,
+            stateKey: null,
+            reusedPriorState: false,
+            visibleEvents: 0,
+            historicalTombstones: 0,
+            historicalUnconfirmed: 0,
+            newlyObservedEvents: 0,
+            tombstonedThisRun: 0,
         },
         counts: {
             candidateProfiles: isAvailable ? 1 : 0,
@@ -316,7 +333,7 @@ async function run(): Promise<void> {
         resolvedUsername: resolvedTarget.username,
     });
 
-    const allEvents = [
+    const currentEvents = [
         ...commentScanResult.events,
         ...likedContentScanResult.events,
         ...mentionTaggedScanResult.events,
@@ -325,10 +342,6 @@ async function run(): Promise<void> {
         const rightTimestamp = right.createdAt ? Date.parse(right.createdAt) : 0;
         return rightTimestamp - leftTimestamp;
     });
-
-    if (allEvents.length > 0) {
-        await Actor.pushData(allEvents);
-    }
 
     const coverageLevel = computeCoverageLevel({
         browserAvailable: commentScanResult.browserAvailable,
@@ -360,20 +373,38 @@ async function run(): Promise<void> {
         taggedAppearanceEvents,
         partialFailures: mentionTaggedScanResult.partialFailures,
     });
+    const targetHistoryStore = await openTargetHistoryStore();
+    const previousHistoryState = await loadTargetHistoryState(targetHistoryStore, resolvedTarget.id);
+    const historyMergeResult = mergeHistoricalObservations({
+        targetId: resolvedTarget.id,
+        resolvedUsername: resolvedTarget.username,
+        profileUrl: resolvedTarget.profileUrl,
+        currentEvents,
+        previousState: previousHistoryState,
+        commentsCanTombstone: scanState === 'complete',
+        mentionTaggedCanTombstone: mentionTaggedCoverage.scanState === 'complete',
+        likedContentCanTombstone: false,
+        now: new Date().toISOString(),
+    });
+    await saveTargetHistoryState(targetHistoryStore, historyMergeResult.nextState);
+
+    if (historyMergeResult.outputEvents.length > 0) {
+        await Actor.pushData(historyMergeResult.outputEvents);
+    }
 
     const status: RunStatus = (() => {
         if (scanState === 'partial_failure') {
             return 'partial_coverage';
         }
 
-        if (allEvents.length > 0) {
+        if (currentEvents.length > 0) {
             return 'resolved_with_results';
         }
 
         return 'resolved_no_results';
     })();
 
-    const resultState = allEvents.length > 0 ? 'results_found' : 'nothing_found';
+    const resultState = currentEvents.length > 0 ? 'results_found' : 'nothing_found';
     const matchedReplies = commentScanResult.events.filter((event) => event.commentKind === 'reply').length;
     const confidenceLevel = computeConfidenceLevel({
         exactMatches: commentScanResult.events.length,
@@ -435,10 +466,14 @@ async function run(): Promise<void> {
         status,
         message: (() => {
             if (status === 'resolved_with_results') {
-                return `Resolved @${resolvedTarget.username} and found ${allEvents.length} public activity events across comments, liked content, mentions, and tagged appearances.`;
+                return `Resolved @${resolvedTarget.username} and found ${currentEvents.length} current public activity events across comments, liked content, mentions, and tagged appearances.`;
             }
 
             if (status === 'resolved_no_results') {
+                if (historyMergeResult.historySummary.historicalTombstones > 0 || historyMergeResult.historySummary.historicalUnconfirmed > 0) {
+                    return `Resolved @${resolvedTarget.username}, found no current public activity events, and returned ${historyMergeResult.historySummary.historicalTombstones + historyMergeResult.historySummary.historicalUnconfirmed} historical observations from prior runs.`;
+                }
+
                 return `Resolved @${resolvedTarget.username}, but found no public comments, liked-content signals, mentions, or tagged appearances in the inspected discovery scope.`;
             }
 
@@ -494,6 +529,7 @@ async function run(): Promise<void> {
             },
             warnings: likedContentScanResult.warnings,
         },
+        history: historyMergeResult.historySummary,
         counts: {
             candidateProfiles: discoveryPlan.candidateProfiles,
             candidatePosts: discoveryPlan.candidatePosts.length,
@@ -507,9 +543,9 @@ async function run(): Promise<void> {
             likedContentAmbiguousCandidates: likedContentScanResult.ambiguousCandidates.length,
             ambiguousCandidates: commentScanResult.ambiguousCandidates.length,
             partialFailures: commentScanResult.partialFailures + mentionTaggedScanResult.partialFailures + likedContentScanResult.partialFailures,
-            warnings: warnings.length + mentionTaggedScanResult.warnings.length + likedContentScanResult.warnings.length,
+            warnings: warnings.length + mentionTaggedScanResult.warnings.length + likedContentScanResult.warnings.length + historyMergeResult.warnings.length,
         },
-        warnings: [...warnings, ...likedContentScanResult.warnings, ...mentionTaggedScanResult.warnings],
+        warnings: [...warnings, ...likedContentScanResult.warnings, ...mentionTaggedScanResult.warnings, ...historyMergeResult.warnings],
     };
 
     await Actor.setValue('RUN_SUMMARY', summary);

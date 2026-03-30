@@ -4,6 +4,24 @@
 		"type": {
 			"type": "string"
 		},
+		"eventKey": {
+			"type": "string"
+		},
+		"observationState": {
+			"type": "string"
+		},
+		"firstSeenAt": {
+			"type": "string",
+			"format": "date-time"
+		},
+		"lastSeenAt": {
+			"type": "string",
+			"format": "date-time"
+		},
+		"disappearedAt": {
+			"type": ["string", "null"],
+			"format": "date-time"
+		},
 		"targetUsername": {
 			"type": "string"
 		},
@@ -72,6 +90,10 @@
 			"transformation": {
 				"fields": [
 					"type",
+					"observationState",
+					"firstSeenAt",
+					"lastSeenAt",
+					"disappearedAt",
 					"createdAt",
 					"targetUsername",
 					"commentOwnerUsername",
@@ -94,6 +116,21 @@
 				"properties": {
 					"type": {
 						"label": "Type"
+					},
+					"observationState": {
+						"label": "Observation state"
+					},
+					"firstSeenAt": {
+						"label": "First seen",
+						"format": "date"
+					},
+					"lastSeenAt": {
+						"label": "Last seen",
+						"format": "date"
+					},
+					"disappearedAt": {
+						"label": "Disappeared at",
+						"format": "date"
 					},
 					"createdAt": {
 						"label": "Created at",

@@ -10,6 +10,7 @@ Best-effort Apify Actor for `#4`: start from a single Instagram username, resolv
 - Liked content only when Instagram exposes attributable public liker usernames on scanned public surfaces
 - Mentions and tagged appearances as supporting surfaces
 - Exact username matching on visible public comment blocks, with ambiguous near-matches flagged separately in the run summary
+- Repeated lookups preserve historical observations per resolved target id
 - Structured dataset items plus a `RUN_SUMMARY` record in the default key-value store
 
 ## Current discovery model
@@ -39,6 +40,7 @@ For each candidate post, the Actor:
 - Mention and tagged coverage is limited to the candidate-post discovery scope already available to the Actor.
 - Liked-content recovery is the weakest surface in the Actor and is explicitly experimental, best-effort, and non-exhaustive.
 - Ambiguous near-matches are flagged in the run summary and are not blended into confirmed results.
+- Historical tombstones are metadata-focused. When an item is no longer confirmed visible, the Actor returns the historical observation without republishing the old text payload in full.
 - Likes, mentions/tagged output, and tombstones are out of scope for this issue and will be added in later issues.
 
 ## Output
@@ -46,6 +48,19 @@ For each candidate post, the Actor:
 Dataset items contain matched comment events.
 
 The dataset now also includes `liked_content`, `mention`, and `tagged_appearance` events as distinct activity types.
+
+Each dataset item also includes observation metadata:
+
+- `observationState`
+- `firstSeenAt`
+- `lastSeenAt`
+- `disappearedAt`
+
+Possible observation states:
+
+- `visible`
+- `historical_tombstone`
+- `historical_unconfirmed`
 
 `RUN_SUMMARY` contains:
 
@@ -57,7 +72,17 @@ The dataset now also includes `liked_content`, `mention`, and `tagged_appearance
 - comments confidence summary and ambiguous candidate samples
 - liked-content coverage and confidence reported separately from comments
 - mention/tagged coverage reported separately from comments
+- history reuse and tombstone counts
 - warnings
+
+## Persistence
+
+Repeated-lookup state is persisted in a named key-value store:
+
+- store name: `TARGET_HISTORY`
+- key pattern: `TARGET_STATE__<resolved-target-id>`
+
+This persistence is internal to the Actor and is used to merge current observations with prior runs.
 
 ## Local development
 

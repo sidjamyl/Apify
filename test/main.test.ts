@@ -10,6 +10,7 @@ import {
     extractMentionedUsernames,
     parseCommentTextFromBlock,
 } from '../src/comment-utils.js';
+import { mergeHistoricalObservations } from '../src/history-state.js';
 import { normalizeUsername, parseInput } from '../src/input.js';
 import { scanLikedContentAppearances } from '../src/liked-content-scan.js';
 import { scanMentionTaggedAppearances } from '../src/mention-tagged-scan.js';
@@ -210,5 +211,117 @@ describe('liked content scan', () => {
 
         expect(result.events).toHaveLength(0);
         expect(result.warnings.some((warning) => warning.includes('No attributable public liker usernames'))).toBe(true);
+    });
+});
+
+describe('history merge', () => {
+    it('keeps current events visible and tombstones safely missing comment events', () => {
+        const now = '2026-03-30T12:00:00.000Z';
+        const previousState = {
+            version: 1 as const,
+            targetId: 'user-1',
+            resolvedUsername: 'nasa',
+            profileUrl: 'https://www.instagram.com/nasa/',
+            updatedAt: '2026-03-29T12:00:00.000Z',
+            events: [
+                {
+                    eventKey: 'comment:https://www.instagram.com/p/abc/c/1/',
+                    observationState: 'visible' as const,
+                    firstSeenAt: '2026-03-29T10:00:00.000Z',
+                    lastSeenAt: '2026-03-29T12:00:00.000Z',
+                    disappearedAt: null,
+                    payload: {
+                        type: 'comment' as const,
+                        targetUsername: 'nasa',
+                        resolvedUsername: 'nasa',
+                        commentOwnerUsername: 'nasa',
+                        commentKind: 'top_level' as const,
+                        replyDepth: 0,
+                        parentCommentPermalink: null,
+                        commentText: 'hello',
+                        createdAt: '2026-03-29T09:00:00.000Z',
+                        createdAtLabel: '1d',
+                        commentPermalink: 'https://www.instagram.com/p/abc/c/1/',
+                        postUrl: 'https://www.instagram.com/p/abc/',
+                        postShortcode: 'abc',
+                        postOwnerUsername: 'esa',
+                        sourceSurface: 'instagram_post_comment_thread' as const,
+                        sourceUrl: 'https://www.instagram.com/p/abc/c/1/',
+                        discoverySource: 'related_profile' as const,
+                        discoveredViaUsername: 'esa',
+                        matchConfidence: 'exact_username_visible' as const,
+                        matchReason: 'exact',
+                    },
+                },
+            ],
+        };
+
+        const result = mergeHistoricalObservations({
+            targetId: 'user-1',
+            resolvedUsername: 'nasa',
+            profileUrl: 'https://www.instagram.com/nasa/',
+            currentEvents: [],
+            previousState,
+            commentsCanTombstone: true,
+            mentionTaggedCanTombstone: false,
+            likedContentCanTombstone: false,
+            now,
+        });
+
+        expect(result.outputEvents).toHaveLength(1);
+        expect(result.outputEvents[0]?.observationState).toBe('historical_tombstone');
+        expect(result.outputEvents[0]?.commentText).toBeNull();
+        expect(result.historySummary.tombstonedThisRun).toBe(1);
+    });
+
+    it('keeps weak-surface historical items as unconfirmed instead of tombstoning them', () => {
+        const now = '2026-03-30T12:00:00.000Z';
+        const previousState = {
+            version: 1 as const,
+            targetId: 'user-2',
+            resolvedUsername: 'nasa',
+            profileUrl: 'https://www.instagram.com/nasa/',
+            updatedAt: '2026-03-29T12:00:00.000Z',
+            events: [
+                {
+                    eventKey: 'liked_content:abc',
+                    observationState: 'visible' as const,
+                    firstSeenAt: '2026-03-29T10:00:00.000Z',
+                    lastSeenAt: '2026-03-29T12:00:00.000Z',
+                    disappearedAt: null,
+                    payload: {
+                        type: 'liked_content' as const,
+                        targetUsername: 'nasa',
+                        resolvedUsername: 'nasa',
+                        appearanceText: 'caption',
+                        createdAt: null,
+                        postUrl: 'https://www.instagram.com/p/abc/',
+                        postShortcode: 'abc',
+                        postOwnerUsername: 'esa',
+                        sourceSurface: 'instagram_post_public_like_signal' as const,
+                        sourceUrl: 'https://www.instagram.com/p/abc/',
+                        discoverySource: 'related_profile' as const,
+                        discoveredViaUsername: 'esa',
+                        matchConfidence: 'exact_username_visible' as const,
+                        matchReason: 'exact',
+                    },
+                },
+            ],
+        };
+
+        const result = mergeHistoricalObservations({
+            targetId: 'user-2',
+            resolvedUsername: 'nasa',
+            profileUrl: 'https://www.instagram.com/nasa/',
+            currentEvents: [],
+            previousState,
+            commentsCanTombstone: false,
+            mentionTaggedCanTombstone: false,
+            likedContentCanTombstone: false,
+            now,
+        });
+
+        expect(result.outputEvents[0]?.observationState).toBe('historical_unconfirmed');
+        expect(result.historySummary.historicalUnconfirmed).toBe(1);
     });
 });

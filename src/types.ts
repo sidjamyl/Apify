@@ -7,6 +7,7 @@ export type RunStatus =
 
 export type CoverageLevel = 'low' | 'medium' | 'high' | 'unknown';
 export type ScanState = 'complete' | 'low_coverage' | 'partial_failure';
+export type ObservationState = 'visible' | 'historical_tombstone' | 'historical_unconfirmed';
 
 export type DiscoverySource = 'target_profile' | 'related_profile';
 export type MatchConfidence = 'exact_username_visible';
@@ -51,7 +52,7 @@ export interface CommentEvent {
     commentKind: CommentKind;
     replyDepth: number;
     parentCommentPermalink: string | null;
-    commentText: string;
+    commentText: string | null;
     createdAt: string | null;
     createdAtLabel: string | null;
     commentPermalink: string;
@@ -118,6 +119,14 @@ export interface LikedContentEvent {
 }
 
 export type AppearanceEvent = CommentEvent | MentionEvent | TaggedAppearanceEvent | LikedContentEvent;
+
+export type HistoricalAppearanceEvent = AppearanceEvent & {
+    eventKey: string;
+    observationState: ObservationState;
+    firstSeenAt: string;
+    lastSeenAt: string;
+    disappearedAt: string | null;
+};
 
 export interface CoverageSummary {
     level: CoverageLevel;
@@ -205,6 +214,16 @@ export interface RunSummary {
         };
         warnings: string[];
     };
+    history: {
+        storeName: string;
+        stateKey: string | null;
+        reusedPriorState: boolean;
+        visibleEvents: number;
+        historicalTombstones: number;
+        historicalUnconfirmed: number;
+        newlyObservedEvents: number;
+        tombstonedThisRun: number;
+    };
     counts: {
         candidateProfiles: number;
         candidatePosts: number;
@@ -258,4 +277,29 @@ export interface LikedContentScanResult {
     warnings: string[];
     events: LikedContentEvent[];
     ambiguousCandidates: AmbiguousLikedContentCandidate[];
+}
+
+export interface StoredHistoricalEvent {
+    eventKey: string;
+    observationState: ObservationState;
+    firstSeenAt: string;
+    lastSeenAt: string;
+    disappearedAt: string | null;
+    payload: AppearanceEvent;
+}
+
+export interface TargetHistoryState {
+    version: 1;
+    targetId: string;
+    resolvedUsername: string;
+    profileUrl: string;
+    updatedAt: string;
+    events: StoredHistoricalEvent[];
+}
+
+export interface HistoryMergeResult {
+    outputEvents: HistoricalAppearanceEvent[];
+    nextState: TargetHistoryState;
+    historySummary: RunSummary['history'];
+    warnings: string[];
 }
