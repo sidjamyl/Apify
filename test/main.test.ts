@@ -13,6 +13,7 @@ import {
 import { scanCommentsOnCandidatePosts } from '../src/comment-scraper.js';
 import {
     buildSearchQueries,
+    parseInstagramPostUrlsFromBrave,
     parseInstagramPostMetadataFromHtml,
     parseInstagramPostUrlsFromDuckDuckGo,
 } from '../src/candidate-discovery.js';
@@ -188,6 +189,18 @@ describe('candidate discovery parsing', () => {
         expect(parseInstagramPostUrlsFromDuckDuckGo(html)).toEqual([
             'https://www.instagram.com/p/DKfFrcRuXnK/',
             'https://www.instagram.com/reel/ABC123xyz/',
+        ]);
+    });
+
+    it('extracts Instagram post URLs from Brave HTML', () => {
+        const html = `
+            <script type="application/json">{"url":"https://www.instagram.com/reel/DJm-gBwh8To/"}</script>
+            <a href="https://www.instagram.com/p/DWS7mttEime/">Instagram</a>
+        `;
+
+        expect(parseInstagramPostUrlsFromBrave(html)).toEqual([
+            'https://www.instagram.com/reel/DJm-gBwh8To/',
+            'https://www.instagram.com/p/DWS7mttEime/',
         ]);
     });
 

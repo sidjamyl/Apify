@@ -50,6 +50,14 @@ export async function persistCandidateDiscoveryCache(input: {
     targetUsername: string;
     candidatePosts: InstagramPost[];
     fruitfulOwnerUsernames: string[];
+    frontierUsernames?: string[];
+    ownerStatUpdates?: {
+        username: string;
+        successfulCommentCountDelta: number;
+        successfulRunIncrement: number;
+        expandedPostCountDelta: number;
+        lastSuccessfulAt: string | null;
+    }[];
     previousState: TargetCandidateCacheState | null;
 }): Promise<TargetCandidateCacheState> {
     const {
@@ -57,11 +65,34 @@ export async function persistCandidateDiscoveryCache(input: {
         targetUsername,
         candidatePosts,
         fruitfulOwnerUsernames,
+        frontierUsernames = [],
+        ownerStatUpdates = [],
         previousState,
     } = input;
 
     for (const candidatePost of candidatePosts) {
         await store.setValue(buildPostKey(candidatePost.shortcode), candidatePost);
+    }
+
+    const ownerStatsByUsername = new Map(
+        (previousState?.ownerStats ?? []).map((ownerStat) => [ownerStat.username, { ...ownerStat }]),
+    );
+
+    for (const ownerStatUpdate of ownerStatUpdates) {
+        const existingOwnerStat = ownerStatsByUsername.get(ownerStatUpdate.username) ?? {
+            username: ownerStatUpdate.username,
+            successfulCommentCount: 0,
+            successfulRunCount: 0,
+            expandedPostCount: 0,
+            lastSuccessfulAt: null,
+        };
+
+        existingOwnerStat.successfulCommentCount += ownerStatUpdate.successfulCommentCountDelta;
+        existingOwnerStat.successfulRunCount += ownerStatUpdate.successfulRunIncrement;
+        existingOwnerStat.expandedPostCount += ownerStatUpdate.expandedPostCountDelta;
+        existingOwnerStat.lastSuccessfulAt = ownerStatUpdate.lastSuccessfulAt ?? existingOwnerStat.lastSuccessfulAt;
+
+        ownerStatsByUsername.set(ownerStatUpdate.username, existingOwnerStat);
     }
 
     const nextState: TargetCandidateCacheState = {
@@ -82,6 +113,14 @@ export async function persistCandidateDiscoveryCache(input: {
             ],
             (username) => username,
         ),
+        frontierUsernames: dedupeByKey(
+            [
+                ...(frontierUsernames.map((username) => username.toLowerCase())),
+                ...(previousState?.frontierUsernames ?? []),
+            ],
+            (username) => username,
+        ),
+        ownerStats: [...ownerStatsByUsername.values()],
     };
 
     await store.setValue(buildTargetKey(targetUsername), nextState);

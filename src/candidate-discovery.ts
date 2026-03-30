@@ -7,7 +7,7 @@ import {
     type DiscoveryPlan,
     resolveTargetProfile,
 } from './instagram-profile.js';
-import type { DiscoverySource, InstagramPost, ResolvedTarget, SearchMode } from './types.js';
+import type { DiscoverySource, InstagramPost, ResolvedTarget, SearchMode, TargetCandidateCacheState } from './types.js';
 
 const SEARCH_HEADERS = {
     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -75,6 +75,50 @@ export function parseInstagramPostUrlsFromBing(html: string): string[] {
     }
 
     return [...urls];
+}
+
+export function parseInstagramPostUrlsFromBrave(html: string): string[] {
+    const urls = new Set<string>();
+    for (const match of html.matchAll(/https?:\/\/www\.instagram\.com\/(?:p|reel)\/[A-Za-z0-9_-]+\/?/g)) {
+        const normalized = normalizeInstagramPostUrl(match[0]);
+        if (normalized) urls.add(normalized);
+    }
+
+    return [...urls];
+}
+
+function buildProfileFrontier(input: {
+    posts: InstagramPost[];
+    searchUsername: string;
+    cachedTargetState: TargetCandidateCacheState | null;
+}): string[] {
+    const { posts, searchUsername, cachedTargetState } = input;
+    const ownerStats = new Map((cachedTargetState?.ownerStats ?? []).map((ownerStat) => [ownerStat.username, ownerStat]));
+    const uniqueCandidates = dedupeByKey(
+        [
+            ...(cachedTargetState?.frontierUsernames ?? []),
+            ...posts.flatMap((post) => [post.ownerUsername, ...post.mentionedUsernames]),
+            ...(cachedTargetState?.fruitfulOwnerUsernames ?? []),
+        ].filter((username) => Boolean(username) && username !== searchUsername),
+        (username) => username,
+    );
+
+    return uniqueCandidates
+        .map((username) => {
+            const ownerStat = ownerStats.get(username);
+            const postsFromCandidateSet = posts.filter((post) => post.ownerUsername === username).length;
+            const mentionHits = posts.filter((post) => post.mentionedUsernames.includes(username)).length;
+            const score = (ownerStat?.successfulCommentCount ?? 0) * 100
+                + (ownerStat?.successfulRunCount ?? 0) * 50
+                + postsFromCandidateSet * 10
+                + mentionHits * 5
+                - (ownerStat?.expandedPostCount ?? 0);
+
+            return { username, score };
+        })
+        .sort((left, right) => right.score - left.score)
+        .map((entry) => entry.username)
+        .slice(0, MAX_EXPANDED_DISCOVERY_PROFILES);
 }
 
 function extractMetaContent(html: string, attributeName: 'name' | 'property', attributeValue: string): string | null {
@@ -180,6 +224,25 @@ async function fetchExternalSearchHits(username: string): Promise<{ urls: string
             const message = error instanceof Error ? error.message : 'Unknown Bing search error.';
             warnings.push(`Bing search failed for query "${query}": ${message}`);
         }
+
+        try {
+            const braveResponse = await fetch(`https://search.brave.com/search?q=${encodeURIComponent(query)}&source=web`, {
+                headers: SEARCH_HEADERS,
+                signal: AbortSignal.timeout(30_000),
+            });
+
+            if (!braveResponse.ok) {
+                warnings.push(`Brave search returned HTTP ${braveResponse.status} for query "${query}".`);
+            } else {
+                const braveHtml = await braveResponse.text();
+                const braveUrls = parseInstagramPostUrlsFromBrave(braveHtml);
+                hitCount += braveUrls.length;
+                for (const url of braveUrls) urls.add(url);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown Brave search error.';
+            warnings.push(`Brave search failed for query "${query}": ${message}`);
+        }
     }
 
     if (hitCount === 0) {
@@ -277,20 +340,13 @@ export async function expandPublicProfiles(input: {
     };
 }
 
-async function expandProfilesAroundSearchHits(posts: InstagramPost[], searchUsername: string): Promise<{ expandedPosts: InstagramPost[]; warnings: string[]; expandedOwnerProfiles: number; }> {
-    return expandPublicProfiles({
-        profileUsernames: posts.flatMap((post) => [post.ownerUsername, ...post.mentionedUsernames]),
-        searchUsername,
-        discoverySource: 'expanded_owner_graph',
-    });
-}
-
 export async function buildCandidateDiscoveryPlan(input: {
     resolvedTarget: ResolvedTarget | null;
     inputUsername: string;
     searchMode: SearchMode;
     cachedCandidatePosts?: InstagramPost[];
     cachedFruitfulOwnerUsernames?: string[];
+    cachedTargetState?: TargetCandidateCacheState | null;
 }): Promise<DiscoveryPlan> {
     const {
         resolvedTarget,
@@ -298,6 +354,7 @@ export async function buildCandidateDiscoveryPlan(input: {
         searchMode,
         cachedCandidatePosts = [],
         cachedFruitfulOwnerUsernames = [],
+        cachedTargetState = null,
     } = input;
 
     const basePlan = searchMode === 'canonical' && resolvedTarget
@@ -307,7 +364,16 @@ export async function buildCandidateDiscoveryPlan(input: {
     const searchUsername = resolvedTarget?.username ?? inputUsername.toLowerCase();
     const externalSearchHits = await fetchExternalSearchHits(searchUsername);
     const externalSearchCandidates = await fetchPostCandidatesFromUrls(externalSearchHits.urls, searchUsername);
-    const ownerExpansion = await expandProfilesAroundSearchHits(externalSearchCandidates.posts, searchUsername);
+    const frontierProfileUsernames = buildProfileFrontier({
+        posts: [...externalSearchCandidates.posts, ...cachedCandidatePosts],
+        searchUsername,
+        cachedTargetState,
+    });
+    const ownerExpansion = await expandPublicProfiles({
+        profileUsernames: frontierProfileUsernames,
+        searchUsername,
+        discoverySource: 'expanded_owner_graph',
+    });
     const cachedOwnerExpansion = await expandPublicProfiles({
         profileUsernames: cachedFruitfulOwnerUsernames,
         searchUsername,
@@ -343,6 +409,7 @@ export async function buildCandidateDiscoveryPlan(input: {
             relatedProfilePosts: basePlan.discoveryCounts.relatedProfilePosts,
             cachedCandidatePosts: cachedCandidatePosts.length,
             cachedFruitfulOwnerProfiles: cachedOwnerExpansion.expandedOwnerProfiles,
+            frontierProfilesQueued: frontierProfileUsernames.length,
             externalSearchQueries: externalSearchHits.queryCount,
             externalSearchHits: externalSearchHits.hitCount,
             externalSearchCandidatePosts: externalSearchCandidates.posts.length,

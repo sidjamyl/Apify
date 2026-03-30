@@ -205,6 +205,7 @@ export interface RunSummary {
             relatedProfilePosts: number;
             cachedCandidatePosts: number;
             cachedFruitfulOwnerProfiles: number;
+            frontierProfilesQueued: number;
             externalSearchQueries: number;
             externalSearchHits: number;
             externalSearchCandidatePosts: number;
@@ -345,4 +346,12 @@ export interface TargetCandidateCacheState {
     updatedAt: string;
     candidateShortcodes: string[];
     fruitfulOwnerUsernames: string[];
+    frontierUsernames: string[];
+    ownerStats: {
+        username: string;
+        successfulCommentCount: number;
+        successfulRunCount: number;
+        expandedPostCount: number;
+        lastSuccessfulAt: string | null;
+    }[];
 }

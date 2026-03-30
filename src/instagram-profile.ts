@@ -114,6 +114,7 @@ export interface DiscoveryPlan {
         relatedProfilePosts: number;
         cachedCandidatePosts: number;
         cachedFruitfulOwnerProfiles: number;
+        frontierProfilesQueued: number;
         externalSearchQueries: number;
         externalSearchHits: number;
         externalSearchCandidatePosts: number;
@@ -137,6 +138,7 @@ export function buildDegradedDiscoveryPlan(username: string, reason?: string): D
             relatedProfilePosts: 0,
             cachedCandidatePosts: 0,
             cachedFruitfulOwnerProfiles: 0,
+            frontierProfilesQueued: 0,
             externalSearchQueries: 0,
             externalSearchHits: 0,
             externalSearchCandidatePosts: 0,
@@ -321,6 +323,7 @@ export async function buildDiscoveryPlan(target: ResolvedTarget): Promise<Discov
                 relatedProfilePosts: 0,
                 cachedCandidatePosts: 0,
                 cachedFruitfulOwnerProfiles: 0,
+                frontierProfilesQueued: 0,
                 externalSearchQueries: 0,
                 externalSearchHits: 0,
                 externalSearchCandidatePosts: 0,
@@ -386,6 +389,7 @@ export async function buildDiscoveryPlan(target: ResolvedTarget): Promise<Discov
             relatedProfilePosts: relatedPosts.length,
             cachedCandidatePosts: 0,
             cachedFruitfulOwnerProfiles: 0,
+            frontierProfilesQueued: 0,
             externalSearchQueries: 0,
             externalSearchHits: 0,
             externalSearchCandidatePosts: 0,

@@ -70,6 +70,7 @@ It can combine:
 - public Instagram profile-derived discovery
 - external public web search for Instagram post URLs
 - bounded expansion around public owners discovered from those hits
+- frontier-style prioritization that reuses productive owners and candidate posts from prior runs
 
 When fetching comments from a post, the Actor now prefers structured API retrieval when that surface is publicly accessible. Browser DOM extraction remains a fallback for posts where structured retrieval is unavailable.
 

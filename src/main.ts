@@ -92,6 +92,7 @@ function buildNoScanSummary(input: {
                 relatedProfilePosts: 0,
                 cachedCandidatePosts: 0,
                 cachedFruitfulOwnerProfiles: 0,
+                frontierProfilesQueued: 0,
                 externalSearchQueries: 0,
                 externalSearchHits: 0,
                 externalSearchCandidatePosts: 0,
@@ -418,6 +419,7 @@ async function run(): Promise<void> {
             ...(targetCandidateCache?.fruitfulOwnerUsernames ?? []),
             ...historicalFruitfulOwners,
         ],
+        cachedTargetState: targetCandidateCache,
     });
     searchUsername = discoveryPlan.searchUsername;
     log.info(`Candidate discovery finished with ${discoveryPlan.candidatePosts.length} candidate posts.`);
@@ -474,6 +476,16 @@ async function run(): Promise<void> {
         targetUsername: searchUsername,
         candidatePosts: discoveryPlan.candidatePosts,
         fruitfulOwnerUsernames: confirmedCommentOwners,
+        frontierUsernames: discoveryPlan.candidatePosts
+            .flatMap((post) => [post.ownerUsername, ...post.mentionedUsernames])
+            .filter((username) => Boolean(username) && username !== searchUsername),
+        ownerStatUpdates: confirmedCommentOwners.map((ownerUsername) => ({
+            username: ownerUsername.toLowerCase(),
+            successfulCommentCountDelta: commentScanResult.events.filter((event) => event.postOwnerUsername === ownerUsername).length,
+            successfulRunIncrement: 1,
+            expandedPostCountDelta: discoveryPlan.candidatePosts.filter((post) => post.ownerUsername === ownerUsername).length,
+            lastSuccessfulAt: new Date().toISOString(),
+        })),
         previousState: targetCandidateCache,
     });
 
@@ -745,6 +757,7 @@ async function run(): Promise<void> {
             searchUsername: discoveryPlan.searchUsername,
             counts: {
                 ...discoveryPlan.discoveryCounts,
+                frontierProfilesQueued: discoveryPlan.discoveryCounts.frontierProfilesQueued,
                 expandedOwnerProfiles: discoveryPlan.discoveryCounts.expandedOwnerProfiles + ownerExpansionProfiles,
                 expandedOwnerPosts: discoveryPlan.discoveryCounts.expandedOwnerPosts + ownerExpansionPosts,
             },
