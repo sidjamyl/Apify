@@ -19,12 +19,23 @@ const POST_WAIT_MS = 4_000;
 const MAX_AMBIGUOUS_SAMPLES = 10;
 const MAX_EXPANSION_SAFETY_STEPS = 100;
 
+async function countVisibleCommentPermalinks(page: Page): Promise<number> {
+    return page.evaluate(() => {
+        return Array.from(document.querySelectorAll('main a[href*="/c/"]')).filter((anchor) => {
+            const href = anchor.getAttribute('href') ?? '';
+            return /^\/p\/[^/]+\/c\/\d+\/$/.test(href) && Boolean(anchor.querySelector('time'));
+        }).length;
+    });
+}
+
 interface RawDomCommentCandidate extends ScrapedVisibleComment {
     rawText: string;
     rawTextLength: number;
 }
 
 async function tryExpandVisibleComments(page: Page): Promise<void> {
+    let previousCount = await countVisibleCommentPermalinks(page);
+
     for (let index = 0; index < MAX_EXPANSION_SAFETY_STEPS; index++) {
         const clicked = await page.evaluate(() => {
             const button = Array.from(document.querySelectorAll('button')).find((element) => {
@@ -38,10 +49,15 @@ async function tryExpandVisibleComments(page: Page): Promise<void> {
 
         if (!clicked) return;
         await page.waitForTimeout(1_500);
+        const nextCount = await countVisibleCommentPermalinks(page);
+        if (nextCount <= previousCount) return;
+        previousCount = nextCount;
     }
 }
 
 async function tryExpandReplies(page: Page): Promise<void> {
+    let previousCount = await countVisibleCommentPermalinks(page);
+
     for (let index = 0; index < MAX_EXPANSION_SAFETY_STEPS; index++) {
         const clickedCount = await page.evaluate(() => {
             const replyButtons = Array.from(document.querySelectorAll('button')).filter((element) => {
@@ -59,6 +75,9 @@ async function tryExpandReplies(page: Page): Promise<void> {
 
         if (clickedCount === 0) return;
         await page.waitForTimeout(1_500);
+        const nextCount = await countVisibleCommentPermalinks(page);
+        if (nextCount <= previousCount) return;
+        previousCount = nextCount;
     }
 }
 
