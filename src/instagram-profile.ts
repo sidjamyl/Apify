@@ -1,7 +1,7 @@
 import { log } from 'apify';
 
 import { dedupeByKey, extractMentionedUsernames } from './comment-utils.js';
-import type { DiscoverySource, InstagramPost, ResolvedTarget } from './types.js';
+import type { DiscoverySource, InstagramPost, ResolvedTarget, SearchMode } from './types.js';
 
 const INSTAGRAM_WEB_APP_ID = '936619743392459';
 const PROFILE_HEADERS = {
@@ -107,6 +107,21 @@ export interface DiscoveryPlan {
     candidateProfiles: number;
     candidatePosts: InstagramPost[];
     warnings: string[];
+    searchMode: SearchMode;
+    searchUsername: string;
+}
+
+export function buildDegradedDiscoveryPlan(username: string, reason?: string): DiscoveryPlan {
+    return {
+        candidateProfiles: 0,
+        candidatePosts: [],
+        warnings: [
+            reason ?? `Canonical target resolution is temporarily unavailable. Continuing in degraded search mode using the input username @${username}.`,
+            'The current discovery engine has not yet produced public candidate posts for degraded-mode search.',
+        ],
+        searchMode: 'degraded',
+        searchUsername: username.toLowerCase(),
+    };
 }
 
 function buildProfileUrl(username: string): string {
@@ -233,7 +248,7 @@ export async function resolveTargetProfile(username: string): Promise<TargetReso
             return {
                 resolvedTarget,
                 status: 'private',
-                message: `The resolved target @${resolvedTarget.username} is private, so public comment discovery cannot continue.`,
+                message: `Resolved private target @${resolvedTarget.username}. The Actor will continue searching for public comment traces on public surfaces.`,
                 warnings: [],
             };
         }
@@ -268,6 +283,19 @@ export async function resolveTargetProfile(username: string): Promise<TargetReso
 
 export async function buildDiscoveryPlan(target: ResolvedTarget): Promise<DiscoveryPlan> {
     const warnings: string[] = [];
+
+    if (target.isPrivate) {
+        return {
+            candidateProfiles: 1,
+            candidatePosts: [],
+            warnings: [
+                `Resolved target @${target.username} is private. Target-profile posts are not available, so the current discovery plan has no public candidate posts yet.`,
+            ],
+            searchMode: 'canonical',
+            searchUsername: target.username,
+        };
+    }
+
     let ownEdges: RawInstagramEdge[] = [];
     let ownPosts = target.posts;
 
@@ -317,5 +345,7 @@ export async function buildDiscoveryPlan(target: ResolvedTarget): Promise<Discov
         candidateProfiles: 1 + relatedUsernames.length,
         candidatePosts,
         warnings,
+        searchMode: 'canonical',
+        searchUsername: target.username,
     };
 }

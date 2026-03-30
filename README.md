@@ -80,7 +80,7 @@ This is important because different surfaces have different reliability:
 - This Actor is best-effort, not exhaustive.
 - It does not guarantee recovery of all public appearances of a target account.
 - Instagram's unauthenticated web surfaces change often and may expose only partial public data.
-- Private accounts are out of scope.
+- Private accounts can still yield public traces on public posts, but recovery remains best-effort and depends on discoverable public surfaces.
 - Replies are included only when Instagram exposes them in visible public threads.
 - Liked-content recovery is experimental and depends on Instagram exposing attributable public liker usernames. In many runs, that signal may not be available at all.
 - Sparse liked-content output does not mean the target never liked anything.
@@ -88,7 +88,7 @@ This is important because different surfaces have different reliability:
 
 ## Out Of Scope
 
-- Private or non-public Instagram data
+- Non-public Instagram data
 - DMs, Close Friends, or private messaging surfaces
 - Stories as a required surface
 - Guaranteed full archive of a user's public appearances

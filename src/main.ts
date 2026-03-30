@@ -16,10 +16,15 @@ import {
     TARGET_HISTORY_STORE_NAME,
 } from './history-state.js';
 import { parseInput } from './input.js';
-import { buildDiscoveryPlan, resolveTargetProfile } from './instagram-profile.js';
+import {
+    buildDegradedDiscoveryPlan,
+    buildDiscoveryPlan,
+    type DiscoveryPlan,
+    resolveTargetProfile,
+} from './instagram-profile.js';
 import { scanLikedContentAppearances } from './liked-content-scan.js';
 import { scanMentionTaggedAppearances } from './mention-tagged-scan.js';
-import type { CoverageLevel, RunStatus, RunSummary, ScanState } from './types.js';
+import type { CoverageLevel, ResolvedTarget, RunStatus, RunSummary, ScanState } from './types.js';
 
 Actor.on('aborting', async () => {
     await setTimeout(1_000);
@@ -261,26 +266,7 @@ async function run(): Promise<void> {
 
     const targetResolution = await resolveTargetProfile(input.username);
 
-    if (targetResolution.status === 'unavailable') {
-        const summary = buildNoScanSummary({
-            status: 'partial_coverage',
-            message: targetResolution.message,
-            inputUsername: input.username,
-            resolvedUsername: null,
-            profileUrl: null,
-            isAvailable: false,
-            isPrivate: false,
-            reason: 'The target lookup was blocked or temporarily unavailable on public Instagram surfaces.',
-            warnings: targetResolution.warnings,
-            partialFailures: 1,
-        });
-
-        await Actor.setValue('RUN_SUMMARY', summary);
-        log.warning(summary.message);
-        return;
-    }
-
-    if (targetResolution.status === 'not_found' || !targetResolution.resolvedTarget) {
+    if (targetResolution.status === 'not_found') {
         const summary = buildNoScanSummary({
             status: 'target_not_found_or_renamed',
             message: targetResolution.message,
@@ -299,38 +285,49 @@ async function run(): Promise<void> {
         return;
     }
 
-    if (targetResolution.status === 'private') {
-        const summary = buildNoScanSummary({
-            status: 'target_private',
-            message: targetResolution.message,
-            inputUsername: input.username,
-            resolvedUsername: targetResolution.resolvedTarget.username,
-            profileUrl: targetResolution.resolvedTarget.profileUrl,
-            isAvailable: true,
-            isPrivate: true,
-            reason: 'The resolved target is private and cannot be scanned through public surfaces.',
-            warnings: targetResolution.warnings,
-            partialFailures: 0,
-        });
+    const { resolvedTarget: initialResolvedTarget } = targetResolution;
+    let resolvedTarget: ResolvedTarget | null = initialResolvedTarget;
+    let discoveryPlan: DiscoveryPlan;
+    let searchUsername = input.username;
+    let targetId: string | null = null;
+    let targetProfileUrl: string | null = null;
+    let targetIsAvailable = false;
+    let targetIsPrivate = false;
+    let historyEnabled = false;
 
-        await Actor.setValue('RUN_SUMMARY', summary);
-        log.warning(summary.message);
-        return;
+    if (targetResolution.status === 'unavailable') {
+        discoveryPlan = buildDegradedDiscoveryPlan(
+            input.username,
+            `Canonical target resolution for @${input.username} is temporarily unavailable. Continuing in degraded search mode using the input username only.`,
+        );
+        resolvedTarget = null;
+    } else {
+        const canonicalTarget = targetResolution.resolvedTarget;
+        if (!canonicalTarget) {
+            throw new Error('Expected a resolved target for canonical search mode.');
+        }
+
+        resolvedTarget = canonicalTarget;
+        discoveryPlan = await buildDiscoveryPlan(canonicalTarget);
+        searchUsername = canonicalTarget.username;
+        targetId = canonicalTarget.id;
+        targetProfileUrl = canonicalTarget.profileUrl;
+        targetIsAvailable = true;
+        targetIsPrivate = canonicalTarget.isPrivate;
+        historyEnabled = true;
     }
 
-    const { resolvedTarget } = targetResolution;
-    const discoveryPlan = await buildDiscoveryPlan(resolvedTarget);
     const commentScanResult = await scanCommentsOnCandidatePosts({
         candidatePosts: discoveryPlan.candidatePosts,
-        resolvedUsername: resolvedTarget.username,
+        resolvedUsername: searchUsername,
     });
     const likedContentScanResult = scanLikedContentAppearances({
         candidatePosts: discoveryPlan.candidatePosts,
-        resolvedUsername: resolvedTarget.username,
+        resolvedUsername: searchUsername,
     });
     const mentionTaggedScanResult = scanMentionTaggedAppearances({
         candidatePosts: discoveryPlan.candidatePosts,
-        resolvedUsername: resolvedTarget.username,
+        resolvedUsername: searchUsername,
     });
 
     const currentEvents = [
@@ -373,27 +370,63 @@ async function run(): Promise<void> {
         taggedAppearanceEvents,
         partialFailures: mentionTaggedScanResult.partialFailures,
     });
-    const targetHistoryStore = await openTargetHistoryStore();
-    const previousHistoryState = await loadTargetHistoryState(targetHistoryStore, resolvedTarget.id);
-    const historyMergeResult = mergeHistoricalObservations({
-        targetId: resolvedTarget.id,
-        resolvedUsername: resolvedTarget.username,
-        profileUrl: resolvedTarget.profileUrl,
-        currentEvents,
-        previousState: previousHistoryState,
-        commentsCanTombstone: scanState === 'complete',
-        mentionTaggedCanTombstone: mentionTaggedCoverage.scanState === 'complete',
-        likedContentCanTombstone: false,
-        now: new Date().toISOString(),
-    });
-    await saveTargetHistoryState(targetHistoryStore, historyMergeResult.nextState);
+    const historyMergeResult = historyEnabled && resolvedTarget && targetId && targetProfileUrl
+        ? (() => {
+            const now = new Date().toISOString();
+            return mergeHistoricalObservations({
+                targetId,
+                resolvedUsername: resolvedTarget.username,
+                profileUrl: targetProfileUrl,
+                currentEvents,
+                previousState: null,
+                commentsCanTombstone: scanState === 'complete',
+                mentionTaggedCanTombstone: mentionTaggedCoverage.scanState === 'complete',
+                likedContentCanTombstone: false,
+                now,
+            });
+        })()
+        : {
+            outputEvents: [],
+            nextState: null,
+            historySummary: {
+                storeName: TARGET_HISTORY_STORE_NAME,
+                stateKey: null,
+                reusedPriorState: false,
+                visibleEvents: 0,
+                historicalTombstones: 0,
+                historicalUnconfirmed: 0,
+                newlyObservedEvents: 0,
+                tombstonedThisRun: 0,
+            },
+            warnings: [],
+        };
 
-    if (historyMergeResult.outputEvents.length > 0) {
-        await Actor.pushData(historyMergeResult.outputEvents);
+    if (historyEnabled && resolvedTarget && targetId && targetProfileUrl) {
+        const targetHistoryStore = await openTargetHistoryStore();
+        const previousHistoryState = await loadTargetHistoryState(targetHistoryStore, targetId);
+        const mergedHistory = mergeHistoricalObservations({
+            targetId,
+            resolvedUsername: resolvedTarget.username,
+            profileUrl: targetProfileUrl,
+            currentEvents,
+            previousState: previousHistoryState,
+            commentsCanTombstone: scanState === 'complete',
+            mentionTaggedCanTombstone: mentionTaggedCoverage.scanState === 'complete',
+            likedContentCanTombstone: false,
+            now: new Date().toISOString(),
+        });
+
+        await saveTargetHistoryState(targetHistoryStore, mergedHistory.nextState);
+
+        if (mergedHistory.outputEvents.length > 0) {
+            await Actor.pushData(mergedHistory.outputEvents);
+        }
+
+        Object.assign(historyMergeResult, mergedHistory);
     }
 
     const status: RunStatus = (() => {
-        if (scanState === 'partial_failure') {
+        if (scanState === 'partial_failure' || discoveryPlan.searchMode === 'degraded') {
             return 'partial_coverage';
         }
 
@@ -412,6 +445,18 @@ async function run(): Promise<void> {
     });
 
     const coverageReason = (() => {
+        if (discoveryPlan.searchMode === 'degraded' && discoveryPlan.candidatePosts.length === 0) {
+            return 'Canonical target resolution was temporarily unavailable. The Actor continued in degraded mode using the input username only, but the current discovery plan had no candidate public posts to inspect yet.';
+        }
+
+        if (targetIsPrivate && discoveryPlan.candidatePosts.length === 0) {
+            return 'The target is private. The Actor continued in public comment hunting mode, but the current discovery plan had no candidate public posts to inspect yet.';
+        }
+
+        if (discoveryPlan.candidatePosts.length === 0) {
+            return 'The current discovery plan produced no candidate public posts to inspect.';
+        }
+
         if (!commentScanResult.browserAvailable) {
             return 'Browser-based public comment extraction could not start in the current runtime.';
         }
@@ -465,27 +510,37 @@ async function run(): Promise<void> {
     const summary: RunSummary = {
         status,
         message: (() => {
+            if (discoveryPlan.searchMode === 'degraded') {
+                return currentEvents.length > 0
+                    ? `Canonical target resolution for @${input.username} was unavailable, but the Actor continued in degraded mode and found ${currentEvents.length} current public activity events.`
+                    : `Canonical target resolution for @${input.username} was unavailable. The Actor continued in degraded mode, but found no public activity events in the current discovery scope.`;
+            }
+
             if (status === 'resolved_with_results') {
-                return `Resolved @${resolvedTarget.username} and found ${currentEvents.length} current public activity events across comments, liked content, mentions, and tagged appearances.`;
+                return targetIsPrivate
+                    ? `Resolved private target @${searchUsername} and found ${currentEvents.length} current public activity events across comments, liked content, mentions, and tagged appearances.`
+                    : `Resolved @${searchUsername} and found ${currentEvents.length} current public activity events across comments, liked content, mentions, and tagged appearances.`;
             }
 
             if (status === 'resolved_no_results') {
                 if (historyMergeResult.historySummary.historicalTombstones > 0 || historyMergeResult.historySummary.historicalUnconfirmed > 0) {
-                    return `Resolved @${resolvedTarget.username}, found no current public activity events, and returned ${historyMergeResult.historySummary.historicalTombstones + historyMergeResult.historySummary.historicalUnconfirmed} historical observations from prior runs.`;
+                    return `Resolved @${searchUsername}, found no current public activity events, and returned ${historyMergeResult.historySummary.historicalTombstones + historyMergeResult.historySummary.historicalUnconfirmed} historical observations from prior runs.`;
                 }
 
-                return `Resolved @${resolvedTarget.username}, but found no public comments, liked-content signals, mentions, or tagged appearances in the inspected discovery scope.`;
+                return targetIsPrivate
+                    ? `Resolved private target @${searchUsername}. The Actor continued in public comment hunting mode, but found no public comments, liked-content signals, mentions, or tagged appearances in the inspected discovery scope.`
+                    : `Resolved @${searchUsername}, but found no public comments, liked-content signals, mentions, or tagged appearances in the inspected discovery scope.`;
             }
 
-            return `Resolved @${resolvedTarget.username}, but comment discovery completed with partial coverage.`;
+            return `Resolved @${searchUsername}, but comment discovery completed with partial coverage.`;
         })(),
         resultState,
         target: {
             inputUsername: input.username,
-            resolvedUsername: resolvedTarget.username,
-            profileUrl: resolvedTarget.profileUrl,
-            isAvailable: true,
-            isPrivate: false,
+            resolvedUsername: resolvedTarget?.username ?? null,
+            profileUrl: targetProfileUrl,
+            isAvailable: targetIsAvailable,
+            isPrivate: targetIsPrivate,
         },
         coverage: {
             level: coverageLevel,

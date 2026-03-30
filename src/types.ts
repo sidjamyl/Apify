@@ -1,13 +1,13 @@
 export type RunStatus =
     | 'resolved_with_results'
     | 'resolved_no_results'
-    | 'target_private'
     | 'target_not_found_or_renamed'
     | 'partial_coverage';
 
 export type CoverageLevel = 'low' | 'medium' | 'high' | 'unknown';
 export type ScanState = 'complete' | 'low_coverage' | 'partial_failure';
 export type ObservationState = 'visible' | 'historical_tombstone' | 'historical_unconfirmed';
+export type SearchMode = 'canonical' | 'degraded';
 
 export type DiscoverySource = 'target_profile' | 'related_profile';
 export type MatchConfidence = 'exact_username_visible';

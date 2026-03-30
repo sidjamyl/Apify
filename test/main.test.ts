@@ -10,8 +10,10 @@ import {
     extractMentionedUsernames,
     parseCommentTextFromBlock,
 } from '../src/comment-utils.js';
+import { scanCommentsOnCandidatePosts } from '../src/comment-scraper.js';
 import { mergeHistoricalObservations } from '../src/history-state.js';
 import { normalizeUsername, parseInput } from '../src/input.js';
+import { buildDegradedDiscoveryPlan } from '../src/instagram-profile.js';
 import { scanLikedContentAppearances } from '../src/liked-content-scan.js';
 import { scanMentionTaggedAppearances } from '../src/mention-tagged-scan.js';
 
@@ -141,6 +143,29 @@ describe('mention and tagged scan', () => {
         expect(result.scannedPosts).toBe(1);
         expect(result.events.map((event) => event.type)).toEqual(['mention', 'tagged_appearance']);
         expect(result.events.every((event) => event.postShortcode === 'abc')).toBe(true);
+    });
+});
+
+describe('issue 10 target handling groundwork', () => {
+    it('builds a degraded discovery plan from the raw input username', () => {
+        const plan = buildDegradedDiscoveryPlan('NASA');
+
+        expect(plan.searchMode).toBe('degraded');
+        expect(plan.searchUsername).toBe('nasa');
+        expect(plan.candidatePosts).toEqual([]);
+        expect(plan.warnings.length).toBeGreaterThan(0);
+    });
+
+    it('returns a no-op comment scan result when no candidate posts exist', async () => {
+        const result = await scanCommentsOnCandidatePosts({
+            candidatePosts: [],
+            resolvedUsername: 'nasa',
+        });
+
+        expect(result.browserAvailable).toBe(true);
+        expect(result.scannedPosts).toBe(0);
+        expect(result.events).toEqual([]);
+        expect(result.warnings.some((warning) => warning.includes('No candidate public posts'))).toBe(true);
     });
 });
 

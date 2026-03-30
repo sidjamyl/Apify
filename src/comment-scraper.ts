@@ -240,6 +240,19 @@ export async function scanCommentsOnCandidatePosts(input: {
     resolvedUsername: string;
 }): Promise<CommentScanResult> {
     const { candidatePosts, resolvedUsername } = input;
+
+    if (candidatePosts.length === 0) {
+        return {
+            browserAvailable: true,
+            scannedPosts: 0,
+            visibleCommentsScanned: 0,
+            partialFailures: 0,
+            warnings: ['No candidate public posts were available for comment scanning.'],
+            events: [],
+            ambiguousCandidates: [],
+        };
+    }
+
     const warnings: string[] = [
         'Comment coverage is limited to visible public comment blocks available without Instagram login.',
     ];
