@@ -109,6 +109,15 @@ export interface DiscoveryPlan {
     warnings: string[];
     searchMode: SearchMode;
     searchUsername: string;
+    discoveryCounts: {
+        targetProfilePosts: number;
+        relatedProfilePosts: number;
+        externalSearchQueries: number;
+        externalSearchHits: number;
+        externalSearchCandidatePosts: number;
+        expandedOwnerProfiles: number;
+        expandedOwnerPosts: number;
+    };
 }
 
 export function buildDegradedDiscoveryPlan(username: string, reason?: string): DiscoveryPlan {
@@ -117,10 +126,19 @@ export function buildDegradedDiscoveryPlan(username: string, reason?: string): D
         candidatePosts: [],
         warnings: [
             reason ?? `Canonical target resolution is temporarily unavailable. Continuing in degraded search mode using the input username @${username}.`,
-            'The current discovery engine has not yet produced public candidate posts for degraded-mode search.',
+            'Degraded search mode starts without target-profile candidates and relies on broader public discovery to add candidate posts.',
         ],
         searchMode: 'degraded',
         searchUsername: username.toLowerCase(),
+        discoveryCounts: {
+            targetProfilePosts: 0,
+            relatedProfilePosts: 0,
+            externalSearchQueries: 0,
+            externalSearchHits: 0,
+            externalSearchCandidatePosts: 0,
+            expandedOwnerProfiles: 0,
+            expandedOwnerPosts: 0,
+        },
     };
 }
 
@@ -293,6 +311,15 @@ export async function buildDiscoveryPlan(target: ResolvedTarget): Promise<Discov
             ],
             searchMode: 'canonical',
             searchUsername: target.username,
+            discoveryCounts: {
+                targetProfilePosts: 0,
+                relatedProfilePosts: 0,
+                externalSearchQueries: 0,
+                externalSearchHits: 0,
+                externalSearchCandidatePosts: 0,
+                expandedOwnerProfiles: 0,
+                expandedOwnerPosts: 0,
+            },
         };
     }
 
@@ -347,5 +374,14 @@ export async function buildDiscoveryPlan(target: ResolvedTarget): Promise<Discov
         warnings,
         searchMode: 'canonical',
         searchUsername: target.username,
+        discoveryCounts: {
+            targetProfilePosts: ownPosts.length,
+            relatedProfilePosts: relatedPosts.length,
+            externalSearchQueries: 0,
+            externalSearchHits: 0,
+            externalSearchCandidatePosts: 0,
+            expandedOwnerProfiles: 0,
+            expandedOwnerPosts: 0,
+        },
     };
 }

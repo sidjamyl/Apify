@@ -9,7 +9,7 @@ export type ScanState = 'complete' | 'low_coverage' | 'partial_failure';
 export type ObservationState = 'visible' | 'historical_tombstone' | 'historical_unconfirmed';
 export type SearchMode = 'canonical' | 'degraded';
 
-export type DiscoverySource = 'target_profile' | 'related_profile';
+export type DiscoverySource = 'target_profile' | 'related_profile' | 'external_search' | 'expanded_owner_graph';
 export type MatchConfidence = 'exact_username_visible';
 export type CommentKind = 'top_level' | 'reply';
 export type AppearanceType = 'comment' | 'mention' | 'tagged_appearance' | 'liked_content';
@@ -182,6 +182,20 @@ export interface RunSummary {
     message: string;
     resultState: 'results_found' | 'nothing_found';
     target: TargetSnapshot;
+    discovery: {
+        searchMode: SearchMode;
+        searchUsername: string;
+        counts: {
+            targetProfilePosts: number;
+            relatedProfilePosts: number;
+            externalSearchQueries: number;
+            externalSearchHits: number;
+            externalSearchCandidatePosts: number;
+            expandedOwnerProfiles: number;
+            expandedOwnerPosts: number;
+        };
+        warnings: string[];
+    };
     coverage: CoverageSummary;
     confidence: ConfidenceSummary;
     mentionTagged: {

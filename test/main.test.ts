@@ -11,6 +11,10 @@ import {
     parseCommentTextFromBlock,
 } from '../src/comment-utils.js';
 import { scanCommentsOnCandidatePosts } from '../src/comment-scraper.js';
+import {
+    parseInstagramPostMetadataFromHtml,
+    parseInstagramPostUrlsFromDuckDuckGo,
+} from '../src/candidate-discovery.js';
 import { mergeHistoricalObservations } from '../src/history-state.js';
 import { normalizeUsername, parseInput } from '../src/input.js';
 import { buildDegradedDiscoveryPlan } from '../src/instagram-profile.js';
@@ -166,6 +170,39 @@ describe('issue 10 target handling groundwork', () => {
         expect(result.scannedPosts).toBe(0);
         expect(result.events).toEqual([]);
         expect(result.warnings.some((warning) => warning.includes('No candidate public posts'))).toBe(true);
+    });
+});
+
+describe('candidate discovery parsing', () => {
+    it('extracts normalized Instagram post URLs from DuckDuckGo result HTML', () => {
+        const html = `
+            <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.instagram.com%2Fp%2FDKfFrcRuXnK%2F&amp;rut=x">Instagram</a>
+            <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.instagram.com%2Freel%2FABC123xyz%2F&amp;rut=y">Instagram</a>
+        `;
+
+        expect(parseInstagramPostUrlsFromDuckDuckGo(html)).toEqual([
+            'https://www.instagram.com/p/DKfFrcRuXnK/',
+            'https://www.instagram.com/reel/ABC123xyz/',
+        ]);
+    });
+
+    it('parses public post metadata from HTML meta tags', () => {
+        const html = `
+            <meta property="og:url" content="https://www.instagram.com/nasa/p/DKfFrcRuXnK/" />
+            <meta name="description" content="575K likes, 1,314 comments - nasa on June 4, 2025: &quot;Hello @ESA from space&quot;. " />
+        `;
+
+        const result = parseInstagramPostMetadataFromHtml({
+            url: 'https://www.instagram.com/p/DKfFrcRuXnK/',
+            html,
+            discoverySource: 'external_search',
+            discoveredViaUsername: 'nasa',
+        });
+
+        expect(result?.shortcode).toBe('DKfFrcRuXnK');
+        expect(result?.ownerUsername).toBe('nasa');
+        expect(result?.caption).toContain('Hello @ESA from space');
+        expect(result?.mentionedUsernames).toEqual(['esa']);
     });
 });
 

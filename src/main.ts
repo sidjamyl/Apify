@@ -2,6 +2,7 @@ import { setTimeout } from 'node:timers/promises';
 
 import { Actor, log } from 'apify';
 
+import { buildCandidateDiscoveryPlan } from './candidate-discovery.js';
 import { scanCommentsOnCandidatePosts } from './comment-scraper.js';
 import {
     computeConfidenceLevel,
@@ -16,12 +17,7 @@ import {
     TARGET_HISTORY_STORE_NAME,
 } from './history-state.js';
 import { parseInput } from './input.js';
-import {
-    buildDegradedDiscoveryPlan,
-    buildDiscoveryPlan,
-    type DiscoveryPlan,
-    resolveTargetProfile,
-} from './instagram-profile.js';
+import { resolveTargetProfile } from './instagram-profile.js';
 import { scanLikedContentAppearances } from './liked-content-scan.js';
 import { scanMentionTaggedAppearances } from './mention-tagged-scan.js';
 import type { CoverageLevel, ResolvedTarget, RunStatus, RunSummary, ScanState } from './types.js';
@@ -68,6 +64,20 @@ function buildNoScanSummary(input: {
             profileUrl,
             isAvailable,
             isPrivate,
+        },
+        discovery: {
+            searchMode: 'canonical',
+            searchUsername: inputUsername,
+            counts: {
+                targetProfilePosts: 0,
+                relatedProfilePosts: 0,
+                externalSearchQueries: 0,
+                externalSearchHits: 0,
+                externalSearchCandidatePosts: 0,
+                expandedOwnerProfiles: 0,
+                expandedOwnerPosts: 0,
+            },
+            warnings: [],
         },
         coverage: {
             level: 'unknown',
@@ -287,19 +297,16 @@ async function run(): Promise<void> {
 
     const { resolvedTarget: initialResolvedTarget } = targetResolution;
     let resolvedTarget: ResolvedTarget | null = initialResolvedTarget;
-    let discoveryPlan: DiscoveryPlan;
     let searchUsername = input.username;
     let targetId: string | null = null;
     let targetProfileUrl: string | null = null;
     let targetIsAvailable = false;
     let targetIsPrivate = false;
     let historyEnabled = false;
+    let searchMode: 'canonical' | 'degraded' = 'canonical';
 
     if (targetResolution.status === 'unavailable') {
-        discoveryPlan = buildDegradedDiscoveryPlan(
-            input.username,
-            `Canonical target resolution for @${input.username} is temporarily unavailable. Continuing in degraded search mode using the input username only.`,
-        );
+        searchMode = 'degraded';
         resolvedTarget = null;
     } else {
         const canonicalTarget = targetResolution.resolvedTarget;
@@ -308,7 +315,6 @@ async function run(): Promise<void> {
         }
 
         resolvedTarget = canonicalTarget;
-        discoveryPlan = await buildDiscoveryPlan(canonicalTarget);
         searchUsername = canonicalTarget.username;
         targetId = canonicalTarget.id;
         targetProfileUrl = canonicalTarget.profileUrl;
@@ -316,6 +322,13 @@ async function run(): Promise<void> {
         targetIsPrivate = canonicalTarget.isPrivate;
         historyEnabled = true;
     }
+
+    const discoveryPlan = await buildCandidateDiscoveryPlan({
+        resolvedTarget,
+        inputUsername: input.username,
+        searchMode,
+    });
+    searchUsername = discoveryPlan.searchUsername;
 
     const commentScanResult = await scanCommentsOnCandidatePosts({
         candidatePosts: discoveryPlan.candidatePosts,
@@ -449,6 +462,10 @@ async function run(): Promise<void> {
             return 'Canonical target resolution was temporarily unavailable. The Actor continued in degraded mode using the input username only, but the current discovery plan had no candidate public posts to inspect yet.';
         }
 
+        if (discoveryPlan.searchMode === 'degraded') {
+            return 'Canonical target resolution was temporarily unavailable. The Actor continued in degraded mode using public discovery signals and external public search, so coverage remains best-effort and partial.';
+        }
+
         if (targetIsPrivate && discoveryPlan.candidatePosts.length === 0) {
             return 'The target is private. The Actor continued in public comment hunting mode, but the current discovery plan had no candidate public posts to inspect yet.';
         }
@@ -541,6 +558,12 @@ async function run(): Promise<void> {
             profileUrl: targetProfileUrl,
             isAvailable: targetIsAvailable,
             isPrivate: targetIsPrivate,
+        },
+        discovery: {
+            searchMode: discoveryPlan.searchMode,
+            searchUsername: discoveryPlan.searchUsername,
+            counts: discoveryPlan.discoveryCounts,
+            warnings: discoveryPlan.warnings,
         },
         coverage: {
             level: coverageLevel,
