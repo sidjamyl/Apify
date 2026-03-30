@@ -207,6 +207,23 @@ describe('candidate discovery parsing', () => {
         expect(result?.caption).toContain('Hello @ESA from space');
         expect(result?.mentionedUsernames).toEqual(['esa']);
     });
+
+    it('parses owner metadata even when meta attribute order varies', () => {
+        const html = `
+            <meta content="https://www.instagram.com/paleblood0/reel/C4a4Faqs-Nc/" property="og:url" />
+            <meta content="2,661 likes, 45 comments - paleblood0 on March 12, 2024: &quot;#midir @marlboroswitch&quot;. " name="description" />
+        `;
+
+        const result = parseInstagramPostMetadataFromHtml({
+            url: 'https://www.instagram.com/reel/C4a4Faqs-Nc/',
+            html,
+            discoverySource: 'external_search',
+            discoveredViaUsername: 'marlboroswitch',
+        });
+
+        expect(result?.ownerUsername).toBe('paleblood0');
+        expect(result?.mentionedUsernames).toEqual(['marlboroswitch']);
+    });
 });
 
 describe('liked content scan', () => {

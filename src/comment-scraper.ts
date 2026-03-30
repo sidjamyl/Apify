@@ -16,9 +16,8 @@ import type {
 } from './types.js';
 
 const POST_WAIT_MS = 4_000;
-const MAX_COMMENT_EXPANSION_STEPS = 2;
-const MAX_REPLY_EXPANSION_STEPS = 2;
 const MAX_AMBIGUOUS_SAMPLES = 10;
+const MAX_EXPANSION_SAFETY_STEPS = 100;
 
 interface RawDomCommentCandidate extends ScrapedVisibleComment {
     rawText: string;
@@ -26,7 +25,7 @@ interface RawDomCommentCandidate extends ScrapedVisibleComment {
 }
 
 async function tryExpandVisibleComments(page: Page): Promise<void> {
-    for (let index = 0; index < MAX_COMMENT_EXPANSION_STEPS; index++) {
+    for (let index = 0; index < MAX_EXPANSION_SAFETY_STEPS; index++) {
         const clicked = await page.evaluate(() => {
             const button = Array.from(document.querySelectorAll('button')).find((element) => {
                 return (element.textContent ?? '').trim() === 'Load more comments';
@@ -43,7 +42,7 @@ async function tryExpandVisibleComments(page: Page): Promise<void> {
 }
 
 async function tryExpandReplies(page: Page): Promise<void> {
-    for (let index = 0; index < MAX_REPLY_EXPANSION_STEPS; index++) {
+    for (let index = 0; index < MAX_EXPANSION_SAFETY_STEPS; index++) {
         const clickedCount = await page.evaluate(() => {
             const replyButtons = Array.from(document.querySelectorAll('button')).filter((element) => {
                 const text = (element.textContent ?? '').trim();
@@ -51,7 +50,7 @@ async function tryExpandReplies(page: Page): Promise<void> {
                 return /(view|show|more).*(repl)/i.test(text);
             });
 
-            for (const button of replyButtons.slice(0, 10)) {
+            for (const button of replyButtons) {
                 button.click();
             }
 

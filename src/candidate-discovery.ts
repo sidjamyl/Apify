@@ -14,17 +14,22 @@ const SEARCH_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
 };
 
-const MAX_EXTERNAL_SEARCH_QUERIES = 3;
-const MAX_EXTERNAL_SEARCH_HITS = 18;
-const MAX_EXPANDED_OWNER_PROFILES = 6;
-const MAX_EXPANDED_OWNER_POSTS = 4;
+const MAX_EXTERNAL_SEARCH_QUERIES = 8;
+const MAX_EXTERNAL_SEARCH_HITS = 60;
+const MAX_EXPANDED_DISCOVERY_PROFILES = 20;
+const MAX_EXPANDED_PROFILE_POSTS = 12;
 
 function buildSearchQueries(username: string): string[] {
-    return [
+    return dedupeByKey([
         `site:instagram.com/p/ "${username}"`,
         `site:instagram.com/reel/ "${username}"`,
         `site:instagram.com "${username}" instagram`,
-    ].slice(0, MAX_EXTERNAL_SEARCH_QUERIES);
+        `site:instagram.com/p/ @${username}`,
+        `site:instagram.com/reel/ @${username}`,
+        `site:instagram.com ${username} instagram comment`,
+        `site:instagram.com ${username} instagram reel`,
+        `site:instagram.com ${username}`,
+    ], (query) => query).slice(0, MAX_EXTERNAL_SEARCH_QUERIES);
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -73,9 +78,19 @@ export function parseInstagramPostUrlsFromBing(html: string): string[] {
 }
 
 function extractMetaContent(html: string, attributeName: 'name' | 'property', attributeValue: string): string | null {
-    const regex = new RegExp(`<meta[^>]+${attributeName}="${attributeValue}"[^>]+content="([\\s\\S]*?)"`, 'i');
-    const match = html.match(regex);
-    return match ? decodeHtmlEntities(match[1]) : null;
+    for (const match of html.matchAll(/<meta\s+[^>]*>/gi)) {
+        const tag = match[0];
+        const attributes: Record<string, string> = {};
+        for (const attributeMatch of tag.matchAll(/([A-Za-z_:.-]+)="([\s\S]*?)"/g)) {
+            attributes[attributeMatch[1]] = decodeHtmlEntities(attributeMatch[2]);
+        }
+
+        if (attributes[attributeName] === attributeValue && attributes.content) {
+            return attributes.content;
+        }
+    }
+
+    return null;
 }
 
 export function parseInstagramPostMetadataFromHtml(input: { url: string; html: string; discoverySource: DiscoverySource; discoveredViaUsername: string | null; }): InstagramPost | null {
@@ -215,37 +230,37 @@ async function fetchPostCandidatesFromUrls(urls: string[], searchUsername: strin
     return { posts, warnings };
 }
 
-async function expandOwnersAroundSearchHits(posts: InstagramPost[], searchUsername: string): Promise<{ expandedPosts: InstagramPost[]; warnings: string[]; expandedOwnerProfiles: number; }> {
+async function expandProfilesAroundSearchHits(posts: InstagramPost[], searchUsername: string): Promise<{ expandedPosts: InstagramPost[]; warnings: string[]; expandedOwnerProfiles: number; }> {
     const warnings: string[] = [];
     const expandedPosts: InstagramPost[] = [];
     let expandedOwnerProfiles = 0;
 
-    const ownerUsernames = dedupeByKey(
+    const profileUsernames = dedupeByKey(
         posts
-            .map((post) => post.ownerUsername)
-            .filter((ownerUsername) => Boolean(ownerUsername) && ownerUsername !== searchUsername),
-        (ownerUsername) => ownerUsername,
-    ).slice(0, MAX_EXPANDED_OWNER_PROFILES);
+            .flatMap((post) => [post.ownerUsername, ...post.mentionedUsernames])
+            .filter((username) => Boolean(username) && username !== searchUsername),
+        (username) => username,
+    ).slice(0, MAX_EXPANDED_DISCOVERY_PROFILES);
 
-    for (const ownerUsername of ownerUsernames) {
+    for (const profileUsername of profileUsernames) {
         try {
-            const ownerResolution = await resolveTargetProfile(ownerUsername);
+            const ownerResolution = await resolveTargetProfile(profileUsername);
             if (ownerResolution.status !== 'resolved' || !ownerResolution.resolvedTarget) {
-                warnings.push(`Skipped owner expansion for @${ownerUsername} because the profile is unavailable or private.`);
+                warnings.push(`Skipped profile expansion for @${profileUsername} because the profile is unavailable or private.`);
                 continue;
             }
 
             expandedOwnerProfiles += 1;
             expandedPosts.push(
-                ...ownerResolution.resolvedTarget.posts.slice(0, MAX_EXPANDED_OWNER_POSTS).map((post) => ({
+                ...ownerResolution.resolvedTarget.posts.slice(0, MAX_EXPANDED_PROFILE_POSTS).map((post) => ({
                     ...post,
                     discoverySource: 'expanded_owner_graph' as const,
-                    discoveredViaUsername: ownerUsername,
+                    discoveredViaUsername: profileUsername,
                 })),
             );
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown owner expansion error.';
-            warnings.push(`Owner expansion failed for @${ownerUsername}: ${message}`);
+            warnings.push(`Profile expansion failed for @${profileUsername}: ${message}`);
         }
     }
 
@@ -270,7 +285,7 @@ export async function buildCandidateDiscoveryPlan(input: {
     const searchUsername = resolvedTarget?.username ?? inputUsername.toLowerCase();
     const externalSearchHits = await fetchExternalSearchHits(searchUsername);
     const externalSearchCandidates = await fetchPostCandidatesFromUrls(externalSearchHits.urls, searchUsername);
-    const ownerExpansion = await expandOwnersAroundSearchHits(externalSearchCandidates.posts, searchUsername);
+    const ownerExpansion = await expandProfilesAroundSearchHits(externalSearchCandidates.posts, searchUsername);
 
     const candidatePosts = dedupeByKey(
         [
