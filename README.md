@@ -1,79 +1,120 @@
-# Instagram Public Comment Discovery
+# Instagram Public Activity History
 
-Best-effort Apify Actor for `#4`: start from a single Instagram username, resolve the public target profile, inspect directly reachable recent public post surfaces, and return matched public comments, visible replies, experimental liked-content signals, caption mentions, and tagged appearances involving that target.
+Best-effort Apify Actor for looking up the public Instagram activity history of a single username.
 
-## Current scope
+This Actor is packaged as a public beta product with a comments-first contract:
 
-- Public-only
-- Username-only input
-- Comments and replies when visible
-- Liked content only when Instagram exposes attributable public liker usernames on scanned public surfaces
-- Mentions and tagged appearances as supporting surfaces
-- Exact username matching on visible public comment blocks, with ambiguous near-matches flagged separately in the run summary
-- Repeated lookups preserve historical observations per resolved target id
-- Structured dataset items plus a `RUN_SUMMARY` record in the default key-value store
+- comments and visible replies first
+- experimental liked-content signals second
+- mentions and tagged appearances as supporting surfaces
 
-## Current discovery model
+It is designed for public research use cases such as creator vetting, moderation research, due diligence, and brand-safety review.
 
-The Actor resolves the target profile through Instagram's public web profile endpoint and builds a bounded recent-first discovery plan from:
+## What You Provide
+
+- One Instagram username
+- No Instagram login is required in the standard public flow
+
+The Actor accepts usernames with or without a leading `@`.
+
+## What You Get Back
+
+The dataset contains public activity events for the resolved target when they are discoverable.
+
+Event types currently supported:
+
+- `comment`
+- `liked_content`
+- `mention`
+- `tagged_appearance`
+
+Each event includes source context, timestamps when available, match confidence, and observation metadata.
+
+## Observation States
+
+Each dataset item includes an `observationState`:
+
+- `visible`: the event was observed again in the current run
+- `historical_tombstone`: the event was observed in an earlier run and is now considered no longer visible based on sufficiently strong coverage
+- `historical_unconfirmed`: the event was observed before, but the current run was not strong enough to safely infer disappearance
+
+Historical output is metadata-focused. When an event becomes historical, the Actor does not republish old text content in full.
+
+## How Discovery Works
+
+The Actor resolves the target profile through public Instagram web surfaces and builds a bounded recent-first discovery plan from:
 
 - the target profile's recent public posts
-- Instagram usernames mentioned in those recent captions
-- co-authors and tagged users visible on those recent posts
+- usernames mentioned in recent captions
+- directly visible co-authors and tagged users on recent posts
 
-For each candidate post, the Actor:
+Within that discovery scope, the Actor:
 
-- inspects the visible comment thread on the public post page
-- tries to expand visible replies when possible
-- keeps comments or replies whose visible author username matches the resolved target username exactly
-- scans non-owned candidate posts for exact caption mentions of the target username
-- scans non-owned candidate posts for exact tagged-user appearances of the target username
-- scans non-owned candidate posts for exact attributable public liker-username signals when Instagram exposes them
+- extracts visible public comments and replies
+- looks for exact caption mentions of the target username
+- looks for exact tagged-user appearances of the target username
+- looks for attributable public liker-username signals when Instagram exposes them
 
-## Important limitations
+## Coverage And Confidence
 
-- Coverage is best-effort, not exhaustive.
-- Instagram's unauthenticated web surfaces do not expose all comments equally.
-- For many posts, only a limited set of visible comments is accessible without login.
-- If a browser runtime is unavailable, the Actor returns a partial-coverage summary instead of failing the whole run.
-- Replies are included only when Instagram exposes them in the public visible thread.
-- Mention and tagged coverage is limited to the candidate-post discovery scope already available to the Actor.
-- Liked-content recovery is the weakest surface in the Actor and is explicitly experimental, best-effort, and non-exhaustive.
-- Ambiguous near-matches are flagged in the run summary and are not blended into confirmed results.
-- Historical tombstones are metadata-focused. When an item is no longer confirmed visible, the Actor returns the historical observation without republishing the old text payload in full.
-- Likes, mentions/tagged output, and tombstones are out of scope for this issue and will be added in later issues.
+The Actor returns a `RUN_SUMMARY` record in the default key-value store.
 
-## Output
+It includes:
 
-Dataset items contain matched comment events.
-
-The dataset now also includes `liked_content`, `mention`, and `tagged_appearance` events as distinct activity types.
-
-Each dataset item also includes observation metadata:
-
-- `observationState`
-- `firstSeenAt`
-- `lastSeenAt`
-- `disappearedAt`
-
-Possible observation states:
-
-- `visible`
-- `historical_tombstone`
-- `historical_unconfirmed`
-
-`RUN_SUMMARY` contains:
-
-- target resolution status
-- user-facing message
-- target snapshot
-- counts
-- comments coverage and scan state
-- comments confidence summary and ambiguous candidate samples
-- liked-content coverage and confidence reported separately from comments
-- mention/tagged coverage reported separately from comments
+- overall run status
+- target resolution snapshot
+- comments coverage and confidence
+- liked-content coverage and confidence
+- mention/tagged coverage
 - history reuse and tombstone counts
-- warnings
+- warnings and limitations seen during the run
+
+This is important because different surfaces have different reliability:
+
+- comments are the strongest current surface
+- liked-content is the weakest and most experimental surface
+- mentions/tagged are useful supporting signals, but still limited by the bounded discovery scope
+
+## Important Limitations
+
+- This Actor is best-effort, not exhaustive.
+- It does not guarantee recovery of all public appearances of a target account.
+- Instagram's unauthenticated web surfaces change often and may expose only partial public data.
+- Private accounts are out of scope.
+- Replies are included only when Instagram exposes them in visible public threads.
+- Liked-content recovery is experimental and depends on Instagram exposing attributable public liker usernames. In many runs, that signal may not be available at all.
+- Sparse liked-content output does not mean the target never liked anything.
+- Missing activity in a run does not automatically prove disappearance unless the relevant branch had strong enough coverage.
+
+## Out Of Scope
+
+- Private or non-public Instagram data
+- DMs, Close Friends, or private messaging surfaces
+- Stories as a required surface
+- Guaranteed full archive of a user's public appearances
+- Guaranteed full reconstruction of a user's likes
+- Mandatory end-user Instagram login in the public Store flow
+
+## Public Beta Positioning
+
+This Actor should be treated as a public beta launch contract:
+
+- conservative on promises
+- explicit about uncertainty
+- explicit about branch-specific limitations
+- suitable for iterative improvement as Instagram surfaces change
+
+## Pricing Guidance
+
+This product should be priced in a way that reflects discovery effort rather than guaranteed result volume.
+
+The reason is simple:
+
+- some runs require inspecting multiple public surfaces just to establish limited coverage
+- comments, likes, and supporting surfaces do not have equal recoverability
+- a low result count can still represent meaningful discovery work
+
+In other words, the Store contract should not imply that payment is tied only to the number of matched events returned.
 
 ## Persistence
 
@@ -82,9 +123,9 @@ Repeated-lookup state is persisted in a named key-value store:
 - store name: `TARGET_HISTORY`
 - key pattern: `TARGET_STATE__<resolved-target-id>`
 
-This persistence is internal to the Actor and is used to merge current observations with prior runs.
+This state is used only to improve repeated lookups and historical output behavior.
 
-## Local development
+## Local Development
 
 Run locally with:
 
@@ -100,11 +141,12 @@ Example input:
 }
 ```
 
-## Validation notes
+## Validation
 
-This repository is currently validated by:
+This repository is currently validated with:
 
-- TypeScript build
-- unit tests for pure parsing and normalization utilities
-- local/dry `apify run` behavior
-- Docker runtime check using the official Apify Playwright image
+- `npm run build`
+- `npm test`
+- `npm run lint`
+- `apify run`
+- `docker build -t instagram-public-comment-discovery:test .`

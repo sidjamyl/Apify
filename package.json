@@ -2,7 +2,7 @@
 	"name": "instagram-public-comment-discovery",
 	"version": "0.0.1",
 	"type": "module",
-	"description": "Best-effort Instagram public comment discovery Actor.",
+	"description": "Comments-first Instagram public activity history Actor with experimental likes and supporting mention/tagged discovery.",
 	"engines": {
 		"node": ">=18.0.0"
 	},

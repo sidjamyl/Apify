@@ -1,15 +1,15 @@
 {
 	"actorOutputSchemaVersion": 1,
-	"title": "Instagram Public Comment Discovery Output",
+	"title": "Instagram Public Activity History Output",
 	"properties": {
-		"comments": {
+		"activityEvents": {
 			"type": "string",
-			"title": "Matched activity events",
+			"title": "Activity events dataset",
 			"template": "{{links.apiDefaultDatasetUrl}}/items"
 		},
 		"runSummary": {
 			"type": "string",
-			"title": "Run summary",
+			"title": "Run summary and coverage",
 			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/RUN_SUMMARY"
 		}
 	}
