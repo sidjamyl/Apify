@@ -126,9 +126,11 @@ In other words, the Store contract should not imply that payment is tied only to
 Repeated-lookup state is persisted in a named key-value store:
 
 - store name: `TARGET_HISTORY`
-- key pattern: `TARGET_STATE__<resolved-target-id>`
+- key pattern: `TARGET_STATE__<identity-mode>__<identity-value>`
 
 This state is used only to improve repeated lookups and historical output behavior.
+
+When canonical target resolution is unavailable, the Actor can fall back to a provisional history identity keyed by the input username. In that case, history should be interpreted as provisional until a future run resolves the target canonically.
 
 ## Local Development
 

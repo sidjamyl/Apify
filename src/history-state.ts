@@ -4,6 +4,7 @@ import { Actor } from 'apify';
 import type {
     AppearanceEvent,
     HistoricalAppearanceEvent,
+    HistoryIdentityMode,
     HistoryMergeResult,
     StoredHistoricalEvent,
     TargetHistoryState,
@@ -11,6 +12,14 @@ import type {
 
 export const TARGET_HISTORY_STORE_NAME = 'TARGET_HISTORY';
 const TARGET_STATE_KEY_PREFIX = 'TARGET_STATE__';
+
+export function buildTargetHistoryStateKey(input: {
+    identityMode: Exclude<HistoryIdentityMode, 'none'>;
+    identityValue: string;
+}): string {
+    const { identityMode, identityValue } = input;
+    return `${TARGET_STATE_KEY_PREFIX}${identityMode}__${identityValue}`;
+}
 
 function cloneEvent<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
@@ -75,6 +84,7 @@ function toHistoricalOutputEvent(storedEvent: StoredHistoricalEvent): Historical
 
 export function mergeHistoricalObservations(input: {
     targetId: string;
+    identityMode: Exclude<HistoryIdentityMode, 'none'>;
     resolvedUsername: string;
     profileUrl: string;
     currentEvents: AppearanceEvent[];
@@ -86,6 +96,7 @@ export function mergeHistoricalObservations(input: {
 }): HistoryMergeResult {
     const {
         targetId,
+        identityMode,
         resolvedUsername,
         profileUrl,
         currentEvents,
@@ -164,6 +175,10 @@ export function mergeHistoricalObservations(input: {
         warnings.push('Historical liked-content events are never auto-tombstoned, because public like signals are too weak to infer disappearance safely.');
     }
 
+    if (identityMode === 'input_username') {
+        warnings.push('Historical state is currently keyed to the input username because canonical target identity was unavailable. This history should be treated as provisional until canonical resolution succeeds in a future run.');
+    }
+
     const outputEvents = mergedEvents
         .map(toHistoricalOutputEvent)
         .sort((left, right) => Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt));
@@ -171,6 +186,7 @@ export function mergeHistoricalObservations(input: {
     const nextState: TargetHistoryState = {
         version: 1,
         targetId,
+        identityMode,
         resolvedUsername,
         profileUrl,
         updatedAt: now,
@@ -182,7 +198,12 @@ export function mergeHistoricalObservations(input: {
         nextState,
         historySummary: {
             storeName: TARGET_HISTORY_STORE_NAME,
-            stateKey: `${TARGET_STATE_KEY_PREFIX}${targetId}`,
+            stateKey: buildTargetHistoryStateKey({
+                identityMode,
+                identityValue: targetId,
+            }),
+            identityMode,
+            identityValue: targetId,
             reusedPriorState: Boolean(previousState),
             visibleEvents: outputEvents.filter((event) => event.observationState === 'visible').length,
             historicalTombstones: outputEvents.filter((event) => event.observationState === 'historical_tombstone').length,
@@ -198,10 +219,25 @@ export async function openTargetHistoryStore(): Promise<KeyValueStore> {
     return Actor.openKeyValueStore(TARGET_HISTORY_STORE_NAME);
 }
 
-export async function loadTargetHistoryState(store: KeyValueStore, targetId: string): Promise<TargetHistoryState | null> {
-    return store.getValue<TargetHistoryState>(`${TARGET_STATE_KEY_PREFIX}${targetId}`);
+export async function loadTargetHistoryState(input: {
+    store: KeyValueStore;
+    identityMode: Exclude<HistoryIdentityMode, 'none'>;
+    identityValue: string;
+}): Promise<TargetHistoryState | null> {
+    const { store, identityMode, identityValue } = input;
+    return store.getValue<TargetHistoryState>(buildTargetHistoryStateKey({
+        identityMode,
+        identityValue,
+    }));
 }
 
-export async function saveTargetHistoryState(store: KeyValueStore, state: TargetHistoryState): Promise<void> {
-    await store.setValue(`${TARGET_STATE_KEY_PREFIX}${state.targetId}`, state);
+export async function saveTargetHistoryState(input: {
+    store: KeyValueStore;
+    state: TargetHistoryState;
+}): Promise<void> {
+    const { store, state } = input;
+    await store.setValue(buildTargetHistoryStateKey({
+        identityMode: state.identityMode,
+        identityValue: state.targetId,
+    }), state);
 }

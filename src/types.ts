@@ -8,6 +8,7 @@ export type CoverageLevel = 'low' | 'medium' | 'high' | 'unknown';
 export type ScanState = 'complete' | 'low_coverage' | 'partial_failure';
 export type ObservationState = 'visible' | 'historical_tombstone' | 'historical_unconfirmed';
 export type SearchMode = 'canonical' | 'degraded';
+export type HistoryIdentityMode = 'none' | 'canonical_target' | 'input_username';
 
 export type DiscoverySource = 'target_profile' | 'related_profile' | 'external_search' | 'expanded_owner_graph';
 export type MatchConfidence = 'exact_username_visible';
@@ -243,6 +244,8 @@ export interface RunSummary {
     history: {
         storeName: string;
         stateKey: string | null;
+        identityMode: HistoryIdentityMode;
+        identityValue: string | null;
         reusedPriorState: boolean;
         visibleEvents: number;
         historicalTombstones: number;
@@ -317,6 +320,7 @@ export interface StoredHistoricalEvent {
 export interface TargetHistoryState {
     version: 1;
     targetId: string;
+    identityMode: Exclude<HistoryIdentityMode, 'none'>;
     resolvedUsername: string;
     profileUrl: string;
     updatedAt: string;

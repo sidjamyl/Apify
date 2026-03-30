@@ -15,7 +15,10 @@ import {
     parseInstagramPostMetadataFromHtml,
     parseInstagramPostUrlsFromDuckDuckGo,
 } from '../src/candidate-discovery.js';
-import { mergeHistoricalObservations } from '../src/history-state.js';
+import {
+    buildTargetHistoryStateKey,
+    mergeHistoricalObservations,
+} from '../src/history-state.js';
 import { normalizeUsername, parseInput } from '../src/input.js';
 import { buildDegradedDiscoveryPlan } from '../src/instagram-profile.js';
 import { scanLikedContentAppearances } from '../src/liked-content-scan.js';
@@ -277,6 +280,18 @@ describe('liked content scan', () => {
 });
 
 describe('history merge', () => {
+    it('builds distinct history state keys for canonical and provisional identities', () => {
+        expect(buildTargetHistoryStateKey({
+            identityMode: 'canonical_target',
+            identityValue: '123',
+        })).toBe('TARGET_STATE__canonical_target__123');
+
+        expect(buildTargetHistoryStateKey({
+            identityMode: 'input_username',
+            identityValue: 'nasa',
+        })).toBe('TARGET_STATE__input_username__nasa');
+    });
+
     it('keeps current events visible and tombstones safely missing comment events', () => {
         const now = '2026-03-30T12:00:00.000Z';
         const previousState = {
@@ -320,6 +335,7 @@ describe('history merge', () => {
 
         const result = mergeHistoricalObservations({
             targetId: 'user-1',
+            identityMode: 'canonical_target',
             resolvedUsername: 'nasa',
             profileUrl: 'https://www.instagram.com/nasa/',
             currentEvents: [],
@@ -334,6 +350,7 @@ describe('history merge', () => {
         expect(result.outputEvents[0]?.observationState).toBe('historical_tombstone');
         expect(result.outputEvents[0]?.commentText).toBeNull();
         expect(result.historySummary.tombstonedThisRun).toBe(1);
+        expect(result.historySummary.identityMode).toBe('canonical_target');
     });
 
     it('keeps weak-surface historical items as unconfirmed instead of tombstoning them', () => {
@@ -373,6 +390,7 @@ describe('history merge', () => {
 
         const result = mergeHistoricalObservations({
             targetId: 'user-2',
+            identityMode: 'input_username',
             resolvedUsername: 'nasa',
             profileUrl: 'https://www.instagram.com/nasa/',
             currentEvents: [],
@@ -385,5 +403,7 @@ describe('history merge', () => {
 
         expect(result.outputEvents[0]?.observationState).toBe('historical_unconfirmed');
         expect(result.historySummary.historicalUnconfirmed).toBe(1);
+        expect(result.historySummary.identityMode).toBe('input_username');
+        expect(result.warnings.some((warning) => warning.includes('provisional'))).toBe(true);
     });
 });

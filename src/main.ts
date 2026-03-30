@@ -20,7 +20,7 @@ import { parseInput } from './input.js';
 import { resolveTargetProfile } from './instagram-profile.js';
 import { scanLikedContentAppearances } from './liked-content-scan.js';
 import { scanMentionTaggedAppearances } from './mention-tagged-scan.js';
-import type { CoverageLevel, ResolvedTarget, RunStatus, RunSummary, ScanState } from './types.js';
+import type { CoverageLevel, HistoryIdentityMode, ResolvedTarget, RunStatus, RunSummary, ScanState } from './types.js';
 
 Actor.on('aborting', async () => {
     await setTimeout(1_000);
@@ -144,6 +144,8 @@ function buildNoScanSummary(input: {
         history: {
             storeName: TARGET_HISTORY_STORE_NAME,
             stateKey: null,
+            identityMode: 'none',
+            identityValue: null,
             reusedPriorState: false,
             visibleEvents: 0,
             historicalTombstones: 0,
@@ -310,11 +312,11 @@ async function run(): Promise<void> {
     const { resolvedTarget: initialResolvedTarget } = targetResolution;
     let resolvedTarget: ResolvedTarget | null = initialResolvedTarget;
     let searchUsername = input.username;
-    let targetId: string | null = null;
     let targetProfileUrl: string | null = null;
     let targetIsAvailable = false;
     let targetIsPrivate = false;
-    let historyEnabled = false;
+    let historyIdentityMode: Exclude<HistoryIdentityMode, 'none'> | null = null;
+    let historyIdentityValue: string | null = null;
     let searchMode: 'canonical' | 'degraded' = 'canonical';
 
     if (targetResolution.status === 'unavailable') {
@@ -328,11 +330,16 @@ async function run(): Promise<void> {
 
         resolvedTarget = canonicalTarget;
         searchUsername = canonicalTarget.username;
-        targetId = canonicalTarget.id;
         targetProfileUrl = canonicalTarget.profileUrl;
         targetIsAvailable = true;
         targetIsPrivate = canonicalTarget.isPrivate;
-        historyEnabled = true;
+        historyIdentityMode = 'canonical_target';
+        historyIdentityValue = canonicalTarget.id;
+    }
+
+    if (!historyIdentityMode || !historyIdentityValue) {
+        historyIdentityMode = 'input_username';
+        historyIdentityValue = input.username;
     }
 
     const discoveryPlan = await buildCandidateDiscoveryPlan({
@@ -403,13 +410,14 @@ async function run(): Promise<void> {
     if (commentScanResult.ambiguousCandidates.length > 0) {
         await Actor.setValue('AMBIGUOUS_COMMENT_CANDIDATES', commentScanResult.ambiguousCandidates);
     }
-    const historyMergeResult = historyEnabled && resolvedTarget && targetId && targetProfileUrl
+    const historyMergeResult = historyIdentityMode && historyIdentityValue
         ? (() => {
             const now = new Date().toISOString();
             return mergeHistoricalObservations({
-                targetId,
-                resolvedUsername: resolvedTarget.username,
-                profileUrl: targetProfileUrl,
+                targetId: historyIdentityValue,
+                identityMode: historyIdentityMode,
+                resolvedUsername: searchUsername,
+                profileUrl: targetProfileUrl ?? '',
                 currentEvents,
                 previousState: null,
                 commentsCanTombstone: scanState === 'complete',
@@ -424,6 +432,8 @@ async function run(): Promise<void> {
             historySummary: {
                 storeName: TARGET_HISTORY_STORE_NAME,
                 stateKey: null,
+                identityMode: 'none' as const,
+                identityValue: null,
                 reusedPriorState: false,
                 visibleEvents: 0,
                 historicalTombstones: 0,
@@ -434,13 +444,18 @@ async function run(): Promise<void> {
             warnings: [],
         };
 
-    if (historyEnabled && resolvedTarget && targetId && targetProfileUrl) {
+    if (historyIdentityMode && historyIdentityValue) {
         const targetHistoryStore = await openTargetHistoryStore();
-        const previousHistoryState = await loadTargetHistoryState(targetHistoryStore, targetId);
+        const previousHistoryState = await loadTargetHistoryState({
+            store: targetHistoryStore,
+            identityMode: historyIdentityMode,
+            identityValue: historyIdentityValue,
+        });
         const mergedHistory = mergeHistoricalObservations({
-            targetId,
-            resolvedUsername: resolvedTarget.username,
-            profileUrl: targetProfileUrl,
+            targetId: historyIdentityValue,
+            identityMode: historyIdentityMode,
+            resolvedUsername: searchUsername,
+            profileUrl: targetProfileUrl ?? '',
             currentEvents,
             previousState: previousHistoryState,
             commentsCanTombstone: scanState === 'complete',
@@ -449,7 +464,10 @@ async function run(): Promise<void> {
             now: new Date().toISOString(),
         });
 
-        await saveTargetHistoryState(targetHistoryStore, mergedHistory.nextState);
+        await saveTargetHistoryState({
+            store: targetHistoryStore,
+            state: mergedHistory.nextState,
+        });
 
         if (mergedHistory.outputEvents.length > 0) {
             await Actor.pushData(mergedHistory.outputEvents);
