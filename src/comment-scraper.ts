@@ -2,8 +2,13 @@ import { log } from 'apify';
 import type { Browser, Page } from 'playwright';
 import { chromium } from 'playwright';
 
-import { dedupeByKey, parseCommentTextFromBlock } from './comment-utils.js';
+import {
+    classifyCommentOwnerUsername,
+    dedupeByKey,
+    parseCommentTextFromBlock,
+} from './comment-utils.js';
 import type {
+    AmbiguousCommentCandidate,
     CommentEvent,
     CommentScanResult,
     InstagramPost,
@@ -12,8 +17,11 @@ import type {
 
 const POST_WAIT_MS = 4_000;
 const MAX_COMMENT_EXPANSION_STEPS = 2;
+const MAX_REPLY_EXPANSION_STEPS = 2;
+const MAX_AMBIGUOUS_SAMPLES = 10;
 
 interface RawDomCommentCandidate extends ScrapedVisibleComment {
+    rawText: string;
     rawTextLength: number;
 }
 
@@ -34,64 +42,157 @@ async function tryExpandVisibleComments(page: Page): Promise<void> {
     }
 }
 
+async function tryExpandReplies(page: Page): Promise<void> {
+    for (let index = 0; index < MAX_REPLY_EXPANSION_STEPS; index++) {
+        const clickedCount = await page.evaluate(() => {
+            const replyButtons = Array.from(document.querySelectorAll('button')).filter((element) => {
+                const text = (element.textContent ?? '').trim();
+                if (!text || text === 'Reply') return false;
+                return /(view|show|more).*(repl)/i.test(text);
+            });
+
+            for (const button of replyButtons.slice(0, 10)) {
+                button.click();
+            }
+
+            return replyButtons.length;
+        });
+
+        if (clickedCount === 0) return;
+        await page.waitForTimeout(1_500);
+    }
+}
+
 async function extractVisibleComments(page: Page): Promise<ScrapedVisibleComment[]> {
     const rawCandidates = await page.evaluate(() => {
         const normalizeHref = (href: string | null) => href ?? '';
         const isProfileHref = (href: string) => /^\/[A-Za-z0-9._]+\/$/.test(href);
         const isCommentPermalink = (href: string) => /^\/p\/[^/]+\/c\/\d+\/$/.test(href);
 
-        return Array.from(document.querySelectorAll('main div'))
-            .map((element) => {
-                const innerText = ((element as HTMLElement).innerText ?? '').trim();
-                const anchors = Array.from(element.querySelectorAll('a')).map((anchor) => ({
+        const findCandidateContainer = (anchor: HTMLAnchorElement): HTMLElement | null => {
+            let currentElement: HTMLElement | null = anchor.parentElement;
+
+            while (currentElement && currentElement.tagName !== 'MAIN') {
+                const innerText = (currentElement.innerText ?? '').trim();
+                const profileAnchors = Array.from(currentElement.querySelectorAll('a')).filter((candidateAnchor) => {
+                    const href = normalizeHref(candidateAnchor.getAttribute('href'));
+                    const text = (candidateAnchor.textContent ?? '').trim();
+                    return Boolean(text) && isProfileHref(href);
+                });
+
+                if (
+                    innerText.includes('Like')
+                    && innerText.includes('Reply')
+                    && profileAnchors.length > 0
+                    && innerText.length < 320
+                ) {
+                    return currentElement;
+                }
+
+                currentElement = currentElement.parentElement;
+            }
+
+            return null;
+        };
+
+        const permalinkAnchors = Array.from(document.querySelectorAll('main a[href*="/c/"]'))
+            .filter((anchor): anchor is HTMLAnchorElement => {
+                const href = normalizeHref(anchor.getAttribute('href'));
+                return isCommentPermalink(href) && Boolean(anchor.querySelector('time'));
+            });
+
+        const candidateEntries = permalinkAnchors
+            .map((permalinkAnchor) => {
+                const commentPermalink = new URL(permalinkAnchor.getAttribute('href') ?? '', window.location.origin).toString();
+                const candidateContainer = findCandidateContainer(permalinkAnchor);
+                if (!candidateContainer) return null;
+
+                const anchors = Array.from(candidateContainer.querySelectorAll('a')).map((anchor) => ({
                     href: normalizeHref(anchor.getAttribute('href')),
                     text: (anchor.textContent ?? '').trim(),
                 }));
-
                 const usernameAnchor = anchors.find((anchor) => anchor.text && isProfileHref(anchor.href));
-                const commentPermalinkAnchor = anchors.find((anchor) => isCommentPermalink(anchor.href));
-                const timeElement = commentPermalinkAnchor
-                    ? element.querySelector(`a[href="${commentPermalinkAnchor.href}"] time`)
-                    : null;
+                if (!usernameAnchor) return null;
 
-                if (!innerText.includes('Like') || !innerText.includes('Reply')) return null;
-                if (!usernameAnchor || !commentPermalinkAnchor) return null;
-                if (innerText.length < 15 || innerText.length > 300) return null;
-
-                const createdAtLabel = commentPermalinkAnchor.text || null;
-                const commentText = (() => {
-                    const ignoredLines = new Set(['Like', 'Reply', 'Edited']);
-                    return innerText
-                        .replace(/\u00a0/g, ' ')
-                        .split('\n')
-                        .map((line: string) => line.trim())
-                        .filter(Boolean)
-                        .filter((line: string) => !ignoredLines.has(line))
-                        .filter((line: string) => line !== usernameAnchor.text)
-                        .filter((line: string) => line !== createdAtLabel)
-                        .join('\n')
-                        .trim();
-                })();
-
-                if (!commentText) return null;
+                const timeElement = permalinkAnchor.querySelector('time');
+                if (!timeElement) return null;
 
                 return {
+                    commentPermalink,
+                    container: candidateContainer,
                     ownerUsername: usernameAnchor.text.toLowerCase(),
-                    commentText,
-                    createdAt: timeElement?.getAttribute('datetime') ?? null,
-                    createdAtLabel,
-                    commentPermalink: new URL(commentPermalinkAnchor.href, window.location.origin).toString(),
-                    rawTextLength: innerText.length,
+                    rawText: (candidateContainer.innerText ?? '').trim(),
+                    rawTextLength: (candidateContainer.innerText ?? '').trim().length,
+                    createdAt: timeElement.getAttribute('datetime') ?? null,
+                    createdAtLabel: (permalinkAnchor.textContent ?? '').trim() || null,
                 };
             })
-            .filter((candidate): candidate is RawDomCommentCandidate => candidate !== null)
+            .filter((candidate): candidate is {
+                commentPermalink: string;
+                container: HTMLElement;
+                ownerUsername: string;
+                rawText: string;
+                rawTextLength: number;
+                createdAt: string | null;
+                createdAtLabel: string | null;
+            } => candidate !== null)
             .sort((left, right) => left.rawTextLength - right.rawTextLength);
+
+        const dedupedEntries = new Map<string, typeof candidateEntries[number]>();
+        for (const candidateEntry of candidateEntries) {
+            if (!dedupedEntries.has(candidateEntry.commentPermalink)) {
+                dedupedEntries.set(candidateEntry.commentPermalink, candidateEntry);
+            }
+        }
+
+        const uniqueEntries = [...dedupedEntries.values()];
+
+        return uniqueEntries.map((entry) => {
+            const parentCandidates = uniqueEntries.filter((candidate) => {
+                return candidate.commentPermalink !== entry.commentPermalink
+                    && candidate.container.contains(entry.container);
+            });
+
+            const directParent = parentCandidates
+                .sort((left, right) => left.rawTextLength - right.rawTextLength)[0] ?? null;
+            const parentCommentPermalink = directParent?.commentPermalink ?? null;
+
+            let replyDepth = 0;
+            let currentParent = directParent;
+            while (currentParent) {
+                replyDepth += 1;
+                const currentParentPermalink = currentParent.commentPermalink;
+                const currentParentContainer = currentParent.container;
+                currentParent = uniqueEntries
+                    .filter((candidate) => {
+                        return candidate.commentPermalink !== currentParentPermalink
+                            && candidate.container.contains(currentParentContainer);
+                    })
+                    .sort((left, right) => left.rawTextLength - right.rawTextLength)[0] ?? null;
+            }
+
+            return {
+                ownerUsername: entry.ownerUsername,
+                commentKind: replyDepth > 0 ? 'reply' : 'top_level',
+                replyDepth,
+                parentCommentPermalink,
+                rawText: entry.rawText,
+                commentText: entry.rawText,
+                createdAt: entry.createdAt,
+                createdAtLabel: entry.createdAtLabel,
+                commentPermalink: entry.commentPermalink,
+                rawTextLength: entry.rawTextLength,
+            } satisfies RawDomCommentCandidate;
+        });
     });
 
     return dedupeByKey(rawCandidates, (candidate) => candidate.commentPermalink).map((candidate) => ({
         ownerUsername: candidate.ownerUsername,
+        commentKind: candidate.commentKind,
+        replyDepth: candidate.replyDepth,
+        parentCommentPermalink: candidate.parentCommentPermalink,
         commentText: parseCommentTextFromBlock(
-            `${candidate.ownerUsername}\n${candidate.createdAtLabel ?? ''}\n${candidate.commentText}\nLike\nReply`,
+            candidate.rawText,
             candidate.ownerUsername,
             candidate.createdAtLabel,
         ),
@@ -113,6 +214,9 @@ function buildCommentEvents(input: {
         targetUsername: resolvedUsername,
         resolvedUsername,
         commentOwnerUsername: comment.ownerUsername,
+        commentKind: comment.commentKind,
+        replyDepth: comment.replyDepth,
+        parentCommentPermalink: comment.parentCommentPermalink,
         commentText: comment.commentText,
         createdAt: comment.createdAt,
         createdAtLabel: comment.createdAtLabel,
@@ -125,7 +229,9 @@ function buildCommentEvents(input: {
         discoverySource: post.discoverySource,
         discoveredViaUsername: post.discoveredViaUsername,
         matchConfidence: 'exact_username_visible',
-        matchReason: 'Visible Instagram comment owner username matched the resolved target username exactly.',
+        matchReason: comment.commentKind === 'reply'
+            ? 'Visible Instagram reply owner username matched the resolved target username exactly.'
+            : 'Visible Instagram comment owner username matched the resolved target username exactly.',
     }));
 }
 
@@ -137,6 +243,7 @@ export async function scanCommentsOnCandidatePosts(input: {
     const warnings: string[] = [
         'Comment coverage is limited to visible public comment blocks available without Instagram login.',
     ];
+    const ambiguousCandidates: AmbiguousCommentCandidate[] = [];
 
     let browser: Browser | null = null;
     try {
@@ -152,6 +259,7 @@ export async function scanCommentsOnCandidatePosts(input: {
             partialFailures: candidatePosts.length > 0 ? 1 : 0,
             warnings,
             events: [],
+            ambiguousCandidates,
         };
     }
 
@@ -166,12 +274,37 @@ export async function scanCommentsOnCandidatePosts(input: {
             await page.goto(post.url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
             await page.waitForTimeout(POST_WAIT_MS);
             await tryExpandVisibleComments(page);
+            await tryExpandReplies(page);
 
             const visibleComments = await extractVisibleComments(page);
             scannedPosts += 1;
             visibleCommentsScanned += visibleComments.length;
 
-            const matchedComments = visibleComments.filter((comment) => comment.ownerUsername === resolvedUsername);
+            const matchedComments = visibleComments.filter((comment) => {
+                const classification = classifyCommentOwnerUsername(comment.ownerUsername, resolvedUsername);
+
+                if (classification === 'ambiguous' && ambiguousCandidates.length < MAX_AMBIGUOUS_SAMPLES) {
+                    ambiguousCandidates.push({
+                        commentOwnerUsername: comment.ownerUsername,
+                        commentKind: comment.commentKind,
+                        replyDepth: comment.replyDepth,
+                        parentCommentPermalink: comment.parentCommentPermalink,
+                        commentTextPreview: comment.commentText.slice(0, 180),
+                        createdAt: comment.createdAt,
+                        createdAtLabel: comment.createdAtLabel,
+                        commentPermalink: comment.commentPermalink,
+                        postUrl: post.url,
+                        postShortcode: post.shortcode,
+                        postOwnerUsername: post.ownerUsername,
+                        discoverySource: post.discoverySource,
+                        discoveredViaUsername: post.discoveredViaUsername,
+                        ambiguityReason: 'Visible comment owner username is similar after punctuation normalization, but does not exactly equal the resolved target username.',
+                    });
+                }
+
+                return classification === 'confirmed';
+            });
+
             matchedEvents.push(...buildCommentEvents({
                 post,
                 comments: matchedComments,
@@ -193,7 +326,12 @@ export async function scanCommentsOnCandidatePosts(input: {
         scannedPosts,
         visibleCommentsScanned,
         partialFailures,
-        warnings,
+        warnings: ambiguousCandidates.length > 0
+            ? [
+                ...warnings,
+                `Flagged ${ambiguousCandidates.length} ambiguous comment candidate(s) separately from confirmed matches.`,
+            ]
+            : warnings,
         events: dedupeByKey(
             matchedEvents.sort((left, right) => {
                 const leftTimestamp = left.createdAt ? Date.parse(left.createdAt) : 0;
@@ -202,5 +340,6 @@ export async function scanCommentsOnCandidatePosts(input: {
             }),
             (event) => event.commentPermalink,
         ),
+        ambiguousCandidates,
     };
 }

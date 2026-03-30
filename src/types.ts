@@ -6,8 +6,11 @@ export type RunStatus =
     | 'partial_coverage';
 
 export type CoverageLevel = 'low' | 'medium' | 'high' | 'unknown';
+export type ScanState = 'complete' | 'low_coverage' | 'partial_failure';
 
 export type DiscoverySource = 'target_profile' | 'related_profile';
+export type MatchConfidence = 'exact_username_visible';
+export type CommentKind = 'top_level' | 'reply';
 
 export interface ActorInput {
     username: string;
@@ -40,6 +43,9 @@ export interface CommentEvent {
     targetUsername: string;
     resolvedUsername: string;
     commentOwnerUsername: string;
+    commentKind: CommentKind;
+    replyDepth: number;
+    parentCommentPermalink: string | null;
     commentText: string;
     createdAt: string | null;
     createdAtLabel: string | null;
@@ -51,13 +57,39 @@ export interface CommentEvent {
     sourceUrl: string;
     discoverySource: DiscoverySource;
     discoveredViaUsername: string | null;
-    matchConfidence: 'exact_username_visible';
+    matchConfidence: MatchConfidence;
     matchReason: string;
 }
 
 export interface CoverageSummary {
     level: CoverageLevel;
+    scanState: ScanState;
     reason: string;
+}
+
+export interface AmbiguousCommentCandidate {
+    commentOwnerUsername: string;
+    commentKind: CommentKind;
+    replyDepth: number;
+    parentCommentPermalink: string | null;
+    commentTextPreview: string;
+    createdAt: string | null;
+    createdAtLabel: string | null;
+    commentPermalink: string;
+    postUrl: string;
+    postShortcode: string;
+    postOwnerUsername: string;
+    discoverySource: DiscoverySource;
+    discoveredViaUsername: string | null;
+    ambiguityReason: string;
+}
+
+export interface ConfidenceSummary {
+    level: 'high' | 'medium' | 'low' | 'unknown';
+    reason: string;
+    exactMatches: number;
+    ambiguousCandidates: number;
+    ambiguousSamples: AmbiguousCommentCandidate[];
 }
 
 export interface TargetSnapshot {
@@ -71,14 +103,18 @@ export interface TargetSnapshot {
 export interface RunSummary {
     status: RunStatus;
     message: string;
+    resultState: 'results_found' | 'nothing_found';
     target: TargetSnapshot;
     coverage: CoverageSummary;
+    confidence: ConfidenceSummary;
     counts: {
         candidateProfiles: number;
         candidatePosts: number;
         scannedPosts: number;
         visibleCommentsScanned: number;
         matchedComments: number;
+        matchedReplies: number;
+        ambiguousCandidates: number;
         partialFailures: number;
         warnings: number;
     };
@@ -87,6 +123,9 @@ export interface RunSummary {
 
 export interface ScrapedVisibleComment {
     ownerUsername: string;
+    commentKind: CommentKind;
+    replyDepth: number;
+    parentCommentPermalink: string | null;
     commentText: string;
     createdAt: string | null;
     createdAtLabel: string | null;
@@ -100,4 +139,5 @@ export interface CommentScanResult {
     partialFailures: number;
     warnings: string[];
     events: CommentEvent[];
+    ambiguousCandidates: AmbiguousCommentCandidate[];
 }

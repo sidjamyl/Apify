@@ -3,10 +3,14 @@ import { setTimeout } from 'node:timers/promises';
 import { Actor, log } from 'apify';
 
 import { scanCommentsOnCandidatePosts } from './comment-scraper.js';
-import { computeCoverageLevel } from './comment-utils.js';
+import {
+    computeConfidenceLevel,
+    computeCoverageLevel,
+    computeScanState,
+} from './comment-utils.js';
 import { parseInput } from './input.js';
 import { buildDiscoveryPlan, resolveTargetProfile } from './instagram-profile.js';
-import type { RunStatus,RunSummary } from './types.js';
+import type { RunStatus, RunSummary } from './types.js';
 
 Actor.on('aborting', async () => {
     await setTimeout(1_000);
@@ -15,6 +19,69 @@ Actor.on('aborting', async () => {
 
 await Actor.init();
 
+function buildNoScanSummary(input: {
+    status: RunStatus;
+    message: string;
+    inputUsername: string;
+    resolvedUsername: string | null;
+    profileUrl: string | null;
+    isAvailable: boolean;
+    isPrivate: boolean;
+    reason: string;
+    warnings: string[];
+    partialFailures: number;
+}): RunSummary {
+    const {
+        status,
+        message,
+        inputUsername,
+        resolvedUsername,
+        profileUrl,
+        isAvailable,
+        isPrivate,
+        reason,
+        warnings,
+        partialFailures,
+    } = input;
+
+    return {
+        status,
+        message,
+        resultState: 'nothing_found',
+        target: {
+            inputUsername,
+            resolvedUsername,
+            profileUrl,
+            isAvailable,
+            isPrivate,
+        },
+        coverage: {
+            level: 'unknown',
+            scanState: 'partial_failure',
+            reason,
+        },
+        confidence: {
+            level: 'unknown',
+            reason: 'Confidence cannot be evaluated because no visible comment scan was completed.',
+            exactMatches: 0,
+            ambiguousCandidates: 0,
+            ambiguousSamples: [],
+        },
+        counts: {
+            candidateProfiles: isAvailable ? 1 : 0,
+            candidatePosts: 0,
+            scannedPosts: 0,
+            visibleCommentsScanned: 0,
+            matchedComments: 0,
+            matchedReplies: 0,
+            ambiguousCandidates: 0,
+            partialFailures,
+            warnings: warnings.length,
+        },
+        warnings,
+    };
+}
+
 async function run(): Promise<void> {
     const input = parseInput(await Actor.getInput());
     log.info(`Starting best-effort public comment discovery for @${input.username}.`);
@@ -22,31 +89,18 @@ async function run(): Promise<void> {
     const targetResolution = await resolveTargetProfile(input.username);
 
     if (targetResolution.status === 'unavailable') {
-        const summary: RunSummary = {
+        const summary = buildNoScanSummary({
             status: 'partial_coverage',
             message: targetResolution.message,
-            target: {
-                inputUsername: input.username,
-                resolvedUsername: null,
-                profileUrl: null,
-                isAvailable: false,
-                isPrivate: false,
-            },
-            coverage: {
-                level: 'unknown',
-                reason: 'The target lookup was blocked or temporarily unavailable on public Instagram surfaces.',
-            },
-            counts: {
-                candidateProfiles: 0,
-                candidatePosts: 0,
-                scannedPosts: 0,
-                visibleCommentsScanned: 0,
-                matchedComments: 0,
-                partialFailures: 1,
-                warnings: targetResolution.warnings.length,
-            },
+            inputUsername: input.username,
+            resolvedUsername: null,
+            profileUrl: null,
+            isAvailable: false,
+            isPrivate: false,
+            reason: 'The target lookup was blocked or temporarily unavailable on public Instagram surfaces.',
             warnings: targetResolution.warnings,
-        };
+            partialFailures: 1,
+        });
 
         await Actor.setValue('RUN_SUMMARY', summary);
         log.warning(summary.message);
@@ -54,31 +108,18 @@ async function run(): Promise<void> {
     }
 
     if (targetResolution.status === 'not_found' || !targetResolution.resolvedTarget) {
-        const summary: RunSummary = {
+        const summary = buildNoScanSummary({
             status: 'target_not_found_or_renamed',
             message: targetResolution.message,
-            target: {
-                inputUsername: input.username,
-                resolvedUsername: null,
-                profileUrl: null,
-                isAvailable: false,
-                isPrivate: false,
-            },
-            coverage: {
-                level: 'unknown',
-                reason: 'Target could not be resolved on public Instagram surfaces.',
-            },
-            counts: {
-                candidateProfiles: 0,
-                candidatePosts: 0,
-                scannedPosts: 0,
-                visibleCommentsScanned: 0,
-                matchedComments: 0,
-                partialFailures: 0,
-                warnings: targetResolution.warnings.length,
-            },
+            inputUsername: input.username,
+            resolvedUsername: null,
+            profileUrl: null,
+            isAvailable: false,
+            isPrivate: false,
+            reason: 'Target could not be resolved on public Instagram surfaces.',
             warnings: targetResolution.warnings,
-        };
+            partialFailures: 0,
+        });
 
         await Actor.setValue('RUN_SUMMARY', summary);
         log.warning(summary.message);
@@ -86,31 +127,18 @@ async function run(): Promise<void> {
     }
 
     if (targetResolution.status === 'private') {
-        const summary: RunSummary = {
+        const summary = buildNoScanSummary({
             status: 'target_private',
             message: targetResolution.message,
-            target: {
-                inputUsername: input.username,
-                resolvedUsername: targetResolution.resolvedTarget.username,
-                profileUrl: targetResolution.resolvedTarget.profileUrl,
-                isAvailable: true,
-                isPrivate: true,
-            },
-            coverage: {
-                level: 'unknown',
-                reason: 'The resolved target is private and cannot be scanned through public surfaces.',
-            },
-            counts: {
-                candidateProfiles: 1,
-                candidatePosts: 0,
-                scannedPosts: 0,
-                visibleCommentsScanned: 0,
-                matchedComments: 0,
-                partialFailures: 0,
-                warnings: targetResolution.warnings.length,
-            },
+            inputUsername: input.username,
+            resolvedUsername: targetResolution.resolvedTarget.username,
+            profileUrl: targetResolution.resolvedTarget.profileUrl,
+            isAvailable: true,
+            isPrivate: true,
+            reason: 'The resolved target is private and cannot be scanned through public surfaces.',
             warnings: targetResolution.warnings,
-        };
+            partialFailures: 0,
+        });
 
         await Actor.setValue('RUN_SUMMARY', summary);
         log.warning(summary.message);
@@ -134,9 +162,14 @@ async function run(): Promise<void> {
         candidatePosts: discoveryPlan.candidatePosts.length,
         partialFailures: commentScanResult.partialFailures,
     });
+    const scanState = computeScanState({
+        browserAvailable: commentScanResult.browserAvailable,
+        partialFailures: commentScanResult.partialFailures,
+        coverageLevel,
+    });
 
     const status: RunStatus = (() => {
-        if (!commentScanResult.browserAvailable || commentScanResult.partialFailures > 0) {
+        if (scanState === 'partial_failure') {
             return 'partial_coverage';
         }
 
@@ -147,24 +180,45 @@ async function run(): Promise<void> {
         return 'resolved_no_results';
     })();
 
+    const resultState = commentScanResult.events.length > 0 ? 'results_found' : 'nothing_found';
+    const matchedReplies = commentScanResult.events.filter((event) => event.commentKind === 'reply').length;
+    const confidenceLevel = computeConfidenceLevel({
+        exactMatches: commentScanResult.events.length,
+        ambiguousCandidates: commentScanResult.ambiguousCandidates.length,
+    });
+
     const coverageReason = (() => {
         if (!commentScanResult.browserAvailable) {
             return 'Browser-based public comment extraction could not start in the current runtime.';
         }
 
-        if (coverageLevel === 'high') {
-            return 'The Actor scanned a larger recent post sample without runtime failures, but coverage remains best-effort.';
+        if (scanState === 'partial_failure') {
+            return 'At least one branch of visible comment discovery failed, so results may be incomplete.';
         }
 
-        if (coverageLevel === 'medium') {
-            return 'The Actor scanned multiple recent public posts, but Instagram only exposed a limited visible comment window.';
+        if (scanState === 'low_coverage') {
+            return commentScanResult.events.length > 0
+                ? 'The Actor found results, but only within a narrow visible public comment window.'
+                : 'The Actor completed without runtime failures, but only a narrow visible public comment window was available.';
         }
 
-        if (coverageLevel === 'low') {
-            return 'The Actor scanned only a narrow or partially degraded visible-comment window.';
+        return 'The Actor scanned a broader recent post sample without runtime failures, but coverage remains best-effort.';
+    })();
+
+    const confidenceReason = (() => {
+        if (commentScanResult.events.length > 0 && commentScanResult.ambiguousCandidates.length === 0) {
+            return 'All confirmed matches in this run use exact visible owner-username equality against the resolved target username.';
         }
 
-        return 'Coverage could not be estimated reliably.';
+        if (commentScanResult.events.length > 0 && commentScanResult.ambiguousCandidates.length > 0) {
+            return 'Confirmed matches use exact visible owner-username equality, and similar near-matches were flagged separately as ambiguous candidates.';
+        }
+
+        if (commentScanResult.ambiguousCandidates.length > 0) {
+            return 'No confirmed exact matches were found, but similar visible owner usernames were flagged separately as ambiguous candidates.';
+        }
+
+        return 'No confirmed or ambiguous comment matches were found in the inspected visible thread scope.';
     })();
 
     const warnings = [...targetResolution.warnings, ...discoveryPlan.warnings, ...commentScanResult.warnings];
@@ -172,15 +226,16 @@ async function run(): Promise<void> {
         status,
         message: (() => {
             if (status === 'resolved_with_results') {
-                return `Resolved @${resolvedTarget.username} and found ${commentScanResult.events.length} matched public comments.`;
+                return `Resolved @${resolvedTarget.username} and found ${commentScanResult.events.length} matched public comments or replies.`;
             }
 
             if (status === 'resolved_no_results') {
-                return `Resolved @${resolvedTarget.username}, but found no matched public comments in the inspected discovery scope.`;
+                return `Resolved @${resolvedTarget.username}, but found no matched public comments or replies in the inspected discovery scope.`;
             }
 
             return `Resolved @${resolvedTarget.username}, but comment discovery completed with partial coverage.`;
         })(),
+        resultState,
         target: {
             inputUsername: input.username,
             resolvedUsername: resolvedTarget.username,
@@ -190,7 +245,15 @@ async function run(): Promise<void> {
         },
         coverage: {
             level: coverageLevel,
+            scanState,
             reason: coverageReason,
+        },
+        confidence: {
+            level: confidenceLevel,
+            reason: confidenceReason,
+            exactMatches: commentScanResult.events.length,
+            ambiguousCandidates: commentScanResult.ambiguousCandidates.length,
+            ambiguousSamples: commentScanResult.ambiguousCandidates,
         },
         counts: {
             candidateProfiles: discoveryPlan.candidateProfiles,
@@ -198,6 +261,8 @@ async function run(): Promise<void> {
             scannedPosts: commentScanResult.scannedPosts,
             visibleCommentsScanned: commentScanResult.visibleCommentsScanned,
             matchedComments: commentScanResult.events.length,
+            matchedReplies,
+            ambiguousCandidates: commentScanResult.ambiguousCandidates.length,
             partialFailures: commentScanResult.partialFailures,
             warnings: warnings.length,
         },

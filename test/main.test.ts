@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    canonicalizeUsernameForMatching,
+    classifyCommentOwnerUsername,
+    computeConfidenceLevel,
     computeCoverageLevel,
+    computeScanState,
     dedupeByKey,
     extractMentionedUsernames,
     parseCommentTextFromBlock,
@@ -21,6 +25,16 @@ describe('input parsing', () => {
 describe('comment utilities', () => {
     it('extracts mentioned usernames from captions', () => {
         expect(extractMentionedUsernames('Hello @NASAWebb and @ESAWebb.')).toEqual(['nasawebb', 'esawebb']);
+    });
+
+    it('canonicalizes punctuation-only username variants', () => {
+        expect(canonicalizeUsernameForMatching('john.doe_test')).toBe('johndoetest');
+    });
+
+    it('classifies exact, ambiguous, and non-match owner usernames', () => {
+        expect(classifyCommentOwnerUsername('nasa', 'nasa')).toBe('confirmed');
+        expect(classifyCommentOwnerUsername('john_doe', 'john.doe')).toBe('ambiguous');
+        expect(classifyCommentOwnerUsername('nasawebb', 'nasa')).toBe('no_match');
     });
 
     it('parses comment text from a visible Instagram block', () => {
@@ -55,5 +69,32 @@ describe('comment utilities', () => {
             candidatePosts: 4,
             partialFailures: 0,
         })).toBe('medium');
+    });
+
+    it('computes explicit scan states', () => {
+        expect(computeScanState({
+            browserAvailable: true,
+            partialFailures: 0,
+            coverageLevel: 'high',
+        })).toBe('complete');
+
+        expect(computeScanState({
+            browserAvailable: true,
+            partialFailures: 0,
+            coverageLevel: 'low',
+        })).toBe('low_coverage');
+
+        expect(computeScanState({
+            browserAvailable: false,
+            partialFailures: 1,
+            coverageLevel: 'unknown',
+        })).toBe('partial_failure');
+    });
+
+    it('computes confidence levels from exact and ambiguous matches', () => {
+        expect(computeConfidenceLevel({ exactMatches: 2, ambiguousCandidates: 0 })).toBe('high');
+        expect(computeConfidenceLevel({ exactMatches: 1, ambiguousCandidates: 2 })).toBe('medium');
+        expect(computeConfidenceLevel({ exactMatches: 0, ambiguousCandidates: 1 })).toBe('low');
+        expect(computeConfidenceLevel({ exactMatches: 0, ambiguousCandidates: 0 })).toBe('unknown');
     });
 });

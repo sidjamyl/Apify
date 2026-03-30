@@ -1,4 +1,4 @@
-import type { CoverageLevel } from './types.js';
+import type { CoverageLevel, ScanState } from './types.js';
 
 const USERNAME_MENTION_REGEX = /@([A-Za-z0-9._]*[A-Za-z0-9_])/g;
 
@@ -11,6 +11,25 @@ export function extractMentionedUsernames(value: string | null | undefined): str
     }
 
     return [...usernames];
+}
+
+export function canonicalizeUsernameForMatching(username: string): string {
+    return username.replace(/[._]/g, '').toLowerCase();
+}
+
+export function classifyCommentOwnerUsername(
+    ownerUsername: string,
+    resolvedUsername: string,
+): 'confirmed' | 'ambiguous' | 'no_match' {
+    if (ownerUsername === resolvedUsername) {
+        return 'confirmed';
+    }
+
+    if (canonicalizeUsernameForMatching(ownerUsername) === canonicalizeUsernameForMatching(resolvedUsername)) {
+        return 'ambiguous';
+    }
+
+    return 'no_match';
 }
 
 export function parseCommentTextFromBlock(
@@ -74,4 +93,43 @@ export function computeCoverageLevel(input: {
     }
 
     return 'low';
+}
+
+export function computeScanState(input: {
+    browserAvailable: boolean;
+    partialFailures: number;
+    coverageLevel: CoverageLevel;
+}): ScanState {
+    const { browserAvailable, partialFailures, coverageLevel } = input;
+
+    if (!browserAvailable || partialFailures > 0) {
+        return 'partial_failure';
+    }
+
+    if (coverageLevel === 'low' || coverageLevel === 'unknown') {
+        return 'low_coverage';
+    }
+
+    return 'complete';
+}
+
+export function computeConfidenceLevel(input: {
+    exactMatches: number;
+    ambiguousCandidates: number;
+}): 'high' | 'medium' | 'low' | 'unknown' {
+    const { exactMatches, ambiguousCandidates } = input;
+
+    if (exactMatches > 0 && ambiguousCandidates === 0) {
+        return 'high';
+    }
+
+    if (exactMatches > 0 && ambiguousCandidates > 0) {
+        return 'medium';
+    }
+
+    if (ambiguousCandidates > 0) {
+        return 'low';
+    }
+
+    return 'unknown';
 }

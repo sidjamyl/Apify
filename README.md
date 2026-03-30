@@ -1,13 +1,13 @@
 # Instagram Public Comment Discovery
 
-Best-effort Apify Actor for `#2`: start from a single Instagram username, resolve the public target profile, inspect directly reachable recent public post surfaces, and return matched public comments authored by that target.
+Best-effort Apify Actor for `#3`: start from a single Instagram username, resolve the public target profile, inspect directly reachable recent public post surfaces, and return matched public comments and visible replies authored by that target.
 
 ## Current scope
 
 - Public-only
 - Username-only input
-- Comments only
-- Exact username matching on visible public comment blocks
+- Comments and replies when visible
+- Exact username matching on visible public comment blocks, with ambiguous near-matches flagged separately in the run summary
 - Structured dataset items plus a `RUN_SUMMARY` record in the default key-value store
 
 ## Current discovery model
@@ -18,7 +18,7 @@ The Actor resolves the target profile through Instagram's public web profile end
 - Instagram usernames mentioned in those recent captions
 - co-authors and tagged users visible on those recent posts
 
-For each candidate post, the Actor inspects the visible comment thread on the public post page and keeps comments whose visible author username matches the resolved target username exactly.
+For each candidate post, the Actor inspects the visible comment thread on the public post page, tries to expand visible replies when possible, and keeps comments or replies whose visible author username matches the resolved target username exactly.
 
 ## Important limitations
 
@@ -26,6 +26,8 @@ For each candidate post, the Actor inspects the visible comment thread on the pu
 - Instagram's unauthenticated web surfaces do not expose all comments equally.
 - For many posts, only a limited set of visible comments is accessible without login.
 - If a browser runtime is unavailable, the Actor returns a partial-coverage summary instead of failing the whole run.
+- Replies are included only when Instagram exposes them in the public visible thread.
+- Ambiguous near-matches are flagged in the run summary and are not blended into confirmed results.
 - Likes, mentions/tagged output, and tombstones are out of scope for this issue and will be added in later issues.
 
 ## Output
@@ -38,8 +40,9 @@ Dataset items contain matched comment events.
 - user-facing message
 - target snapshot
 - counts
-- qualitative coverage
-- warnings
+- qualitative coverage and scan state
+- confidence summary and ambiguous candidate samples
+	- warnings
 
 ## Local development
 
