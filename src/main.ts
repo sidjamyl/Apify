@@ -356,6 +356,47 @@ async function run(): Promise<void> {
         historyIdentityValue = input.username;
     }
 
+    const targetHistoryStore = await openTargetHistoryStore();
+    const previousHistoryState = historyIdentityMode && historyIdentityValue
+        ? await loadTargetHistoryState({
+            store: targetHistoryStore,
+            identityMode: historyIdentityMode,
+            identityValue: historyIdentityValue,
+        })
+        : null;
+
+    const historicalCandidatePosts = previousHistoryState
+        ? [...new Map(
+            previousHistoryState.events
+                .filter((event) => event.payload.type === 'comment')
+                .map((event) => {
+                    const { payload } = event;
+                    return [payload.postShortcode, {
+                        id: `history:${payload.postShortcode}`,
+                        shortcode: payload.postShortcode,
+                        url: payload.postUrl,
+                        ownerUsername: payload.postOwnerUsername,
+                        caption: null,
+                        mentionedUsernames: [],
+                        taggedUsernames: [],
+                        coauthorUsernames: [],
+                        discoverableLikerUsernames: [],
+                        takenAtTimestamp: payload.createdAt ? Math.floor(Date.parse(payload.createdAt) / 1000) : null,
+                        discoverySource: payload.discoverySource,
+                        discoveredViaUsername: payload.discoveredViaUsername,
+                    }];
+                }),
+        ).values()]
+        : [];
+    const historicalFruitfulOwners = previousHistoryState
+        ? [...new Set(
+            previousHistoryState.events
+                .filter((event) => event.payload.type === 'comment')
+                .map((event) => event.payload.postOwnerUsername)
+                .filter((ownerUsername) => ownerUsername && ownerUsername !== searchUsername),
+        )]
+        : [];
+
     const candidateCacheStore = await openCandidateDiscoveryCacheStore();
     const targetCandidateCache = await loadTargetCandidateCache({
         store: candidateCacheStore,
@@ -370,8 +411,11 @@ async function run(): Promise<void> {
         resolvedTarget,
         inputUsername: input.username,
         searchMode,
-        cachedCandidatePosts,
-        cachedFruitfulOwnerUsernames: targetCandidateCache?.fruitfulOwnerUsernames ?? [],
+        cachedCandidatePosts: [...cachedCandidatePosts, ...historicalCandidatePosts],
+        cachedFruitfulOwnerUsernames: [
+            ...(targetCandidateCache?.fruitfulOwnerUsernames ?? []),
+            ...historicalFruitfulOwners,
+        ],
     });
     searchUsername = discoveryPlan.searchUsername;
     log.info(`Candidate discovery finished with ${discoveryPlan.candidatePosts.length} candidate posts.`);
@@ -519,12 +563,6 @@ async function run(): Promise<void> {
 
     if (historyIdentityMode && historyIdentityValue) {
         try {
-            const targetHistoryStore = await openTargetHistoryStore();
-            const previousHistoryState = await loadTargetHistoryState({
-                store: targetHistoryStore,
-                identityMode: historyIdentityMode,
-                identityValue: historyIdentityValue,
-            });
             const mergedHistory = mergeHistoricalObservations({
                 targetId: historyIdentityValue,
                 identityMode: historyIdentityMode,
