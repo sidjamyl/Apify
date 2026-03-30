@@ -82,6 +82,7 @@ It explains:
 - target resolution status
 - comment-hunt result state
 - discovery breadth and warnings
+- discovery memory reuse such as cached candidate posts
 - comments coverage and confidence
 - liked-content coverage and confidence
 - mention/tagged coverage
@@ -141,12 +142,21 @@ This is a public beta product and should be presented that way:
 
 Repeated lookup state is stored in `target-history`.
 
+Candidate discovery memory is also stored separately in `candidate-discovery-cache`.
+
+This cache can keep:
+
+- previously found candidate posts for a username
+- productive owners that are worth rescanning later
+
 The Actor may persist history either by:
 
 - canonical target identity
 - provisional input-username identity
 
 If canonical resolution is unavailable, history may be keyed provisionally by username. In that case, historical interpretation should remain cautious until canonical resolution succeeds in a future run.
+
+This means repeated runs do not depend only on fresh search-engine results. They can reuse older discovery memory and continue from earlier findings.
 
 ## Local Development
 
