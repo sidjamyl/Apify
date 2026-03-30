@@ -4,7 +4,7 @@
 	"name": "instagram-public-comment-discovery",
 	"title": "Instagram Public Comment Hunter (Beta)",
 	"description": "Comments-first, best-effort public Instagram comment discovery by username, including public traces from private accounts on public posts. Secondary likes, mention, and tagged signals remain experimental/supporting.",
-	"version": "0.1.0",
+	"version": "0.1",
 	"buildTag": "latest",
 	"meta": {
 		"templateId": "ts-empty",

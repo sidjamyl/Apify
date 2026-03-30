@@ -1,87 +1,90 @@
 {
 	"actorSpecification": 1,
 	"fields": {
-		"type": {
-			"type": "string"
-		},
-		"eventKey": {
-			"type": "string"
-		},
-		"observationState": {
-			"type": "string"
-		},
-		"firstSeenAt": {
-			"type": "string",
-			"format": "date-time"
-		},
-		"lastSeenAt": {
-			"type": "string",
-			"format": "date-time"
-		},
-		"disappearedAt": {
-			"type": ["string", "null"],
-			"format": "date-time"
-		},
-		"targetUsername": {
-			"type": "string"
-		},
-		"resolvedUsername": {
-			"type": "string"
-		},
-		"commentOwnerUsername": {
-			"type": ["string", "null"]
-		},
-		"commentKind": {
-			"type": ["string", "null"]
-		},
-		"replyDepth": {
-			"type": ["number", "null"]
-		},
-		"parentCommentPermalink": {
-			"type": ["string", "null"]
-		},
-		"commentText": {
-			"type": ["string", "null"]
-		},
-		"appearanceText": {
-			"type": ["string", "null"]
-		},
-		"createdAt": {
-			"type": ["string", "null"],
-			"format": "date-time"
-		},
-		"createdAtLabel": {
-			"type": ["string", "null"]
-		},
-		"commentPermalink": {
-			"type": ["string", "null"]
-		},
-		"postUrl": {
-			"type": "string"
-		},
-		"postShortcode": {
-			"type": "string"
-		},
-		"postOwnerUsername": {
-			"type": "string"
-		},
-		"sourceSurface": {
-			"type": "string"
-		},
-		"sourceUrl": {
-			"type": "string"
-		},
-		"discoverySource": {
-			"type": "string"
-		},
-		"discoveredViaUsername": {
-			"type": ["string", "null"]
-		},
-		"matchConfidence": {
-			"type": "string"
-		},
-		"matchReason": {
-			"type": "string"
+		"type": "object",
+		"properties": {
+			"type": {
+				"type": "string"
+			},
+			"eventKey": {
+				"type": "string"
+			},
+			"observationState": {
+				"type": "string"
+			},
+			"firstSeenAt": {
+				"type": "string",
+				"format": "date-time"
+			},
+			"lastSeenAt": {
+				"type": "string",
+				"format": "date-time"
+			},
+			"disappearedAt": {
+				"type": ["string", "null"],
+				"format": "date-time"
+			},
+			"targetUsername": {
+				"type": "string"
+			},
+			"resolvedUsername": {
+				"type": "string"
+			},
+			"commentOwnerUsername": {
+				"type": ["string", "null"]
+			},
+			"commentKind": {
+				"type": ["string", "null"]
+			},
+			"replyDepth": {
+				"type": ["number", "null"]
+			},
+			"parentCommentPermalink": {
+				"type": ["string", "null"]
+			},
+			"commentText": {
+				"type": ["string", "null"]
+			},
+			"appearanceText": {
+				"type": ["string", "null"]
+			},
+			"createdAt": {
+				"type": ["string", "null"],
+				"format": "date-time"
+			},
+			"createdAtLabel": {
+				"type": ["string", "null"]
+			},
+			"commentPermalink": {
+				"type": ["string", "null"]
+			},
+			"postUrl": {
+				"type": "string"
+			},
+			"postShortcode": {
+				"type": "string"
+			},
+			"postOwnerUsername": {
+				"type": "string"
+			},
+			"sourceSurface": {
+				"type": "string"
+			},
+			"sourceUrl": {
+				"type": "string"
+			},
+			"discoverySource": {
+				"type": "string"
+			},
+			"discoveredViaUsername": {
+				"type": ["string", "null"]
+			},
+			"matchConfidence": {
+				"type": "string"
+			},
+			"matchReason": {
+				"type": "string"
+			}
 		}
 	},
 	"views": {

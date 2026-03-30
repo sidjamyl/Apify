@@ -142,16 +142,7 @@ function buildNoScanSummary(input: {
             warnings: [],
         },
         history: {
-            storeName: TARGET_HISTORY_STORE_NAME,
-            stateKey: null,
-            identityMode: 'none',
-            identityValue: null,
-            reusedPriorState: false,
-            visibleEvents: 0,
-            historicalTombstones: 0,
-            historicalUnconfirmed: 0,
-            newlyObservedEvents: 0,
-            tombstonedThisRun: 0,
+            ...emptyHistorySummary(),
         },
         counts: {
             candidateProfiles: isAvailable ? 1 : 0,
@@ -284,6 +275,21 @@ function computeLikedContentCoverage(input: {
     };
 }
 
+function emptyHistorySummary(): RunSummary['history'] {
+    return {
+        storeName: TARGET_HISTORY_STORE_NAME,
+        stateKey: null,
+        identityMode: 'none',
+        identityValue: null,
+        reusedPriorState: false,
+        visibleEvents: 0,
+        historicalTombstones: 0,
+        historicalUnconfirmed: 0,
+        newlyObservedEvents: 0,
+        tombstonedThisRun: 0,
+    };
+}
+
 async function run(): Promise<void> {
     const input = parseInput(await Actor.getInput());
     log.info(`Starting best-effort public comment discovery for @${input.username}.`);
@@ -348,6 +354,7 @@ async function run(): Promise<void> {
         searchMode,
     });
     searchUsername = discoveryPlan.searchUsername;
+    log.info(`Candidate discovery finished with ${discoveryPlan.candidatePosts.length} candidate posts.`);
 
     const commentScanResult = await scanCommentsOnCandidatePosts({
         candidatePosts: discoveryPlan.candidatePosts,
@@ -361,6 +368,7 @@ async function run(): Promise<void> {
         candidatePosts: discoveryPlan.candidatePosts,
         resolvedUsername: searchUsername,
     });
+    log.info(`Comment scan finished with ${commentScanResult.events.length} confirmed comments and ${commentScanResult.ambiguousCandidates.length} ambiguous comment candidates.`);
 
     const currentEvents = [
         ...commentScanResult.events,
@@ -408,7 +416,12 @@ async function run(): Promise<void> {
         : null;
 
     if (commentScanResult.ambiguousCandidates.length > 0) {
-        await Actor.setValue('AMBIGUOUS_COMMENT_CANDIDATES', commentScanResult.ambiguousCandidates);
+        try {
+            await Actor.setValue('AMBIGUOUS_COMMENT_CANDIDATES', commentScanResult.ambiguousCandidates);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown ambiguous comment bucket write error.';
+            log.warning(`Failed to persist ambiguous comment bucket: ${message}`);
+        }
     }
     const historyMergeResult = historyIdentityMode && historyIdentityValue
         ? (() => {
@@ -429,51 +442,47 @@ async function run(): Promise<void> {
         : {
             outputEvents: [],
             nextState: null,
-            historySummary: {
-                storeName: TARGET_HISTORY_STORE_NAME,
-                stateKey: null,
-                identityMode: 'none' as const,
-                identityValue: null,
-                reusedPriorState: false,
-                visibleEvents: 0,
-                historicalTombstones: 0,
-                historicalUnconfirmed: 0,
-                newlyObservedEvents: 0,
-                tombstonedThisRun: 0,
-            },
-            warnings: [],
+            historySummary: emptyHistorySummary(),
+            warnings: [] as string[],
         };
 
     if (historyIdentityMode && historyIdentityValue) {
-        const targetHistoryStore = await openTargetHistoryStore();
-        const previousHistoryState = await loadTargetHistoryState({
-            store: targetHistoryStore,
-            identityMode: historyIdentityMode,
-            identityValue: historyIdentityValue,
-        });
-        const mergedHistory = mergeHistoricalObservations({
-            targetId: historyIdentityValue,
-            identityMode: historyIdentityMode,
-            resolvedUsername: searchUsername,
-            profileUrl: targetProfileUrl ?? '',
-            currentEvents,
-            previousState: previousHistoryState,
-            commentsCanTombstone: scanState === 'complete',
-            mentionTaggedCanTombstone: mentionTaggedCoverage.scanState === 'complete',
-            likedContentCanTombstone: false,
-            now: new Date().toISOString(),
-        });
+        try {
+            const targetHistoryStore = await openTargetHistoryStore();
+            const previousHistoryState = await loadTargetHistoryState({
+                store: targetHistoryStore,
+                identityMode: historyIdentityMode,
+                identityValue: historyIdentityValue,
+            });
+            const mergedHistory = mergeHistoricalObservations({
+                targetId: historyIdentityValue,
+                identityMode: historyIdentityMode,
+                resolvedUsername: searchUsername,
+                profileUrl: targetProfileUrl ?? '',
+                currentEvents,
+                previousState: previousHistoryState,
+                commentsCanTombstone: scanState === 'complete',
+                mentionTaggedCanTombstone: mentionTaggedCoverage.scanState === 'complete',
+                likedContentCanTombstone: false,
+                now: new Date().toISOString(),
+            });
 
-        await saveTargetHistoryState({
-            store: targetHistoryStore,
-            state: mergedHistory.nextState,
-        });
+            await saveTargetHistoryState({
+                store: targetHistoryStore,
+                state: mergedHistory.nextState,
+            });
 
-        if (mergedHistory.outputEvents.length > 0) {
-            await Actor.pushData(mergedHistory.outputEvents);
+            if (mergedHistory.outputEvents.length > 0) {
+                await Actor.pushData(mergedHistory.outputEvents);
+            }
+
+            Object.assign(historyMergeResult, mergedHistory);
+            log.info(`History merge finished with ${mergedHistory.historySummary.visibleEvents} visible events and ${mergedHistory.historySummary.historicalTombstones} tombstones.`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown history merge error.';
+            historyMergeResult.warnings.push(`Failed to persist or reuse historical state: ${message}`);
+            log.warning(`History merge failed: ${message}`);
         }
-
-        Object.assign(historyMergeResult, mergedHistory);
     }
 
     const status: RunStatus = (() => {
@@ -687,6 +696,7 @@ async function run(): Promise<void> {
     };
 
     await Actor.setValue('RUN_SUMMARY', summary);
+    log.info('RUN_SUMMARY persisted successfully.');
     log.info(summary.message);
     if (summary.warnings.length > 0) {
         log.warning(`Run completed with ${summary.warnings.length} warning(s).`);
