@@ -10,6 +10,21 @@
 			"pattern": "^@?[A-Za-z0-9._]+$",
 			"editor": "textfield",
 			"prefill": "nasa"
+		},
+		"runMode": {
+			"title": "Run mode",
+			"type": "string",
+			"description": "Backfill runs spend more cycles trying to widen recall. Freshness runs are lighter and prioritize repeated updates using existing memory.",
+			"enum": ["backfill", "freshness"],
+			"enumTitles": ["Backfill", "Freshness"],
+			"default": "backfill"
+		},
+		"maxDiscoveryCycles": {
+			"title": "Max discovery cycles",
+			"type": "integer",
+			"description": "How many internal discovery/scan cycles the Actor should try within a run before stopping. Higher values favor deeper recall at the cost of runtime.",
+			"default": 5,
+			"minimum": 1
 		}
 	},
 	"required": ["username"]

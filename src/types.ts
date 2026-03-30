@@ -9,6 +9,7 @@ export type ScanState = 'complete' | 'low_coverage' | 'partial_failure';
 export type ObservationState = 'visible' | 'historical_tombstone' | 'historical_unconfirmed';
 export type SearchMode = 'canonical' | 'degraded';
 export type HistoryIdentityMode = 'none' | 'canonical_target' | 'input_username';
+export type RunMode = 'backfill' | 'freshness';
 
 export type DiscoverySource = 'target_profile' | 'related_profile' | 'external_search' | 'expanded_owner_graph';
 export type MatchConfidence = 'exact_username_visible';
@@ -17,6 +18,8 @@ export type AppearanceType = 'comment' | 'mention' | 'tagged_appearance' | 'like
 
 export interface ActorInput {
     username: string;
+    runMode: RunMode;
+    maxDiscoveryCycles: number;
 }
 
 export interface InstagramPost {
@@ -183,6 +186,12 @@ export interface RunSummary {
     status: RunStatus;
     message: string;
     resultState: 'results_found' | 'nothing_found';
+    operation: {
+        runMode: RunMode;
+        maxDiscoveryCycles: number;
+        cyclesCompleted: number;
+        stoppedBecause: 'completed_all_cycles' | 'saturated' | 'no_candidates';
+    };
     target: TargetSnapshot;
     comments: {
         resultState: 'comments_found' | 'no_comments_found';

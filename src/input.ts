@@ -19,5 +19,22 @@ export function parseInput(input: unknown): ActorInput {
         throw new Error('Input.username must be a valid Instagram username.');
     }
 
-    return { username: normalizedUsername };
+    const runMode = Reflect.get(input, 'runMode');
+    const normalizedRunMode = runMode === 'freshness' ? 'freshness' : 'backfill';
+
+    const maxDiscoveryCycles = Reflect.get(input, 'maxDiscoveryCycles');
+    let normalizedMaxDiscoveryCycles: number;
+    if (typeof maxDiscoveryCycles === 'number' && Number.isInteger(maxDiscoveryCycles) && maxDiscoveryCycles > 0) {
+        normalizedMaxDiscoveryCycles = maxDiscoveryCycles;
+    } else if (normalizedRunMode === 'freshness') {
+        normalizedMaxDiscoveryCycles = 2;
+    } else {
+        normalizedMaxDiscoveryCycles = 5;
+    }
+
+    return {
+        username: normalizedUsername,
+        runMode: normalizedRunMode,
+        maxDiscoveryCycles: normalizedMaxDiscoveryCycles,
+    };
 }

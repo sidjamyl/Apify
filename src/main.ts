@@ -26,7 +26,16 @@ import { parseInput } from './input.js';
 import { resolveTargetProfile } from './instagram-profile.js';
 import { scanLikedContentAppearances } from './liked-content-scan.js';
 import { scanMentionTaggedAppearances } from './mention-tagged-scan.js';
-import type { CoverageLevel, HistoryIdentityMode, ResolvedTarget, RunStatus, RunSummary, ScanState } from './types.js';
+import type {
+    AmbiguousCommentCandidate,
+    CommentEvent,
+    CoverageLevel,
+    HistoryIdentityMode,
+    ResolvedTarget,
+    RunStatus,
+    RunSummary,
+    ScanState,
+} from './types.js';
 
 Actor.on('aborting', async () => {
     await setTimeout(1_000);
@@ -38,6 +47,8 @@ await Actor.init();
 function buildNoScanSummary(input: {
     status: RunStatus;
     message: string;
+    runMode: 'backfill' | 'freshness';
+    maxDiscoveryCycles: number;
     inputUsername: string;
     resolvedUsername: string | null;
     profileUrl: string | null;
@@ -64,6 +75,12 @@ function buildNoScanSummary(input: {
         status,
         message,
         resultState: 'nothing_found',
+        operation: {
+            runMode: input.runMode,
+            maxDiscoveryCycles: input.maxDiscoveryCycles,
+            cyclesCompleted: 0,
+            stoppedBecause: 'no_candidates',
+        },
         target: {
             inputUsername,
             resolvedUsername,
@@ -310,6 +327,8 @@ async function run(): Promise<void> {
         const summary = buildNoScanSummary({
             status: 'target_not_found_or_renamed',
             message: targetResolution.message,
+            runMode: input.runMode,
+            maxDiscoveryCycles: input.maxDiscoveryCycles,
             inputUsername: input.username,
             resolvedUsername: null,
             profileUrl: null,
@@ -401,7 +420,7 @@ async function run(): Promise<void> {
         : [];
 
     const candidateCacheStore = await openCandidateDiscoveryCacheStore();
-    const targetCandidateCache = await loadTargetCandidateCache({
+    let targetCandidateCache = await loadTargetCandidateCache({
         store: candidateCacheStore,
         targetUsername: searchUsername,
     });
@@ -410,91 +429,198 @@ async function run(): Promise<void> {
         shortcodes: targetCandidateCache?.candidateShortcodes ?? [],
     });
 
-    const discoveryPlan = await buildCandidateDiscoveryPlan({
-        resolvedTarget,
-        inputUsername: input.username,
-        searchMode,
-        cachedCandidatePosts: [...cachedCandidatePosts, ...historicalCandidatePosts],
-        cachedFruitfulOwnerUsernames: [
-            ...(targetCandidateCache?.fruitfulOwnerUsernames ?? []),
-            ...historicalFruitfulOwners,
-        ],
-        cachedTargetState: targetCandidateCache,
-    });
-    searchUsername = discoveryPlan.searchUsername;
-    log.info(`Candidate discovery finished with ${discoveryPlan.candidatePosts.length} candidate posts.`);
+    const knownCandidatePosts = new Map<string, typeof cachedCandidatePosts[number]>();
+    for (const post of [...cachedCandidatePosts, ...historicalCandidatePosts]) {
+        knownCandidatePosts.set(post.shortcode, post);
+    }
 
-    const commentScanResult = await scanCommentsOnCandidatePosts({
-        candidatePosts: discoveryPlan.candidatePosts,
-        resolvedUsername: searchUsername,
-    });
-    const confirmedCommentOwners = [...new Set(
-        commentScanResult.events
-            .map((event) => event.postOwnerUsername)
-            .filter((ownerUsername) => ownerUsername && ownerUsername !== searchUsername),
-    )];
-
-    let ownerExpansionWarnings: string[] = [];
+    const scannedShortcodes = new Set<string>();
+    let cyclesCompleted = 0;
+    let stoppedBecause: 'completed_all_cycles' | 'saturated' | 'no_candidates' = 'completed_all_cycles';
+    let noProgressCycles = 0;
+    let aggregatedCandidateProfiles = 0;
+    let lastDiscoverySearchMode: 'canonical' | 'degraded' = searchMode;
+    let lastDiscoverySearchUsername = searchUsername;
+    const aggregatedDiscoveryCounts = {
+        targetProfilePosts: 0,
+        relatedProfilePosts: 0,
+        cachedCandidatePosts: cachedCandidatePosts.length,
+        cachedFruitfulOwnerProfiles: 0,
+        frontierProfilesQueued: 0,
+        externalSearchQueries: 0,
+        externalSearchHits: 0,
+        externalSearchCandidatePosts: 0,
+        expandedOwnerProfiles: 0,
+        expandedOwnerPosts: 0,
+    };
+    const aggregatedDiscoveryWarnings: string[] = [];
+    const aggregatedCommentScanResult = {
+        browserAvailable: true,
+        scannedPosts: 0,
+        visibleCommentsScanned: 0,
+        structuredCommentsScanned: 0,
+        partialFailures: 0,
+        warnings: [] as string[],
+        events: [] as CommentEvent[],
+        ambiguousCandidates: [] as AmbiguousCommentCandidate[],
+    };
+    const ownerExpansionWarnings: string[] = [];
     let ownerExpansionProfiles = 0;
     let ownerExpansionPosts = 0;
 
-    if (confirmedCommentOwners.length > 0) {
-        const expandedCommentOwnerProfiles = await expandPublicProfiles({
-            profileUsernames: confirmedCommentOwners,
-            searchUsername,
-            discoverySource: 'expanded_owner_graph',
+    for (let cycleIndex = 0; cycleIndex < input.maxDiscoveryCycles; cycleIndex++) {
+        const discoveryPlan = await buildCandidateDiscoveryPlan({
+            resolvedTarget,
+            inputUsername: input.username,
+            searchMode,
+            cachedCandidatePosts: [...knownCandidatePosts.values()],
+            cachedFruitfulOwnerUsernames: [
+                ...(targetCandidateCache?.fruitfulOwnerUsernames ?? []),
+                ...historicalFruitfulOwners,
+            ],
+            cachedTargetState: targetCandidateCache,
         });
+        searchUsername = discoveryPlan.searchUsername;
+        lastDiscoverySearchMode = discoveryPlan.searchMode;
+        lastDiscoverySearchUsername = discoveryPlan.searchUsername;
+        cyclesCompleted += 1;
+        aggregatedCandidateProfiles = Math.max(aggregatedCandidateProfiles, discoveryPlan.candidateProfiles);
+        aggregatedDiscoveryCounts.targetProfilePosts = Math.max(aggregatedDiscoveryCounts.targetProfilePosts, discoveryPlan.discoveryCounts.targetProfilePosts);
+        aggregatedDiscoveryCounts.relatedProfilePosts += discoveryPlan.discoveryCounts.relatedProfilePosts;
+        aggregatedDiscoveryCounts.cachedCandidatePosts = Math.max(aggregatedDiscoveryCounts.cachedCandidatePosts, discoveryPlan.discoveryCounts.cachedCandidatePosts);
+        aggregatedDiscoveryCounts.cachedFruitfulOwnerProfiles = Math.max(aggregatedDiscoveryCounts.cachedFruitfulOwnerProfiles, discoveryPlan.discoveryCounts.cachedFruitfulOwnerProfiles);
+        aggregatedDiscoveryCounts.frontierProfilesQueued = Math.max(aggregatedDiscoveryCounts.frontierProfilesQueued, discoveryPlan.discoveryCounts.frontierProfilesQueued);
+        aggregatedDiscoveryCounts.externalSearchQueries += discoveryPlan.discoveryCounts.externalSearchQueries;
+        aggregatedDiscoveryCounts.externalSearchHits += discoveryPlan.discoveryCounts.externalSearchHits;
+        aggregatedDiscoveryCounts.externalSearchCandidatePosts += discoveryPlan.discoveryCounts.externalSearchCandidatePosts;
+        aggregatedDiscoveryCounts.expandedOwnerProfiles += discoveryPlan.discoveryCounts.expandedOwnerProfiles;
+        aggregatedDiscoveryCounts.expandedOwnerPosts += discoveryPlan.discoveryCounts.expandedOwnerPosts;
+        aggregatedDiscoveryWarnings.push(...discoveryPlan.warnings);
 
-        ownerExpansionWarnings = expandedCommentOwnerProfiles.warnings;
-        ownerExpansionProfiles = expandedCommentOwnerProfiles.expandedOwnerProfiles;
+        for (const post of discoveryPlan.candidatePosts) {
+            if (!knownCandidatePosts.has(post.shortcode)) {
+                knownCandidatePosts.set(post.shortcode, post);
+            }
+        }
 
-        const extraCandidatePosts = expandedCommentOwnerProfiles.expandedPosts.filter((post) => {
-            return !discoveryPlan.candidatePosts.some((existingPost) => existingPost.shortcode === post.shortcode);
+        const cycleCandidatePosts = discoveryPlan.candidatePosts.filter((post) => !scannedShortcodes.has(post.shortcode)).slice(0, input.runMode === 'freshness' ? 10 : 30);
+        log.info(`Cycle ${cycleIndex + 1}/${input.maxDiscoveryCycles}: ${cycleCandidatePosts.length} new candidate posts selected.`);
+
+        if (cycleCandidatePosts.length === 0) {
+            stoppedBecause = cyclesCompleted === 1 ? 'no_candidates' : 'saturated';
+            break;
+        }
+
+        const cycleCommentScanResult = await scanCommentsOnCandidatePosts({
+            candidatePosts: cycleCandidatePosts,
+            resolvedUsername: searchUsername,
         });
-        ownerExpansionPosts = extraCandidatePosts.length;
+        const currentCycleSearchUsername = searchUsername;
+        for (const post of cycleCandidatePosts) {
+            scannedShortcodes.add(post.shortcode);
+        }
 
-        if (extraCandidatePosts.length > 0) {
-            log.info(`Confirmed-comment owner expansion added ${extraCandidatePosts.length} new candidate posts.`);
-            const extraCommentScanResult = await scanCommentsOnCandidatePosts({
-                candidatePosts: extraCandidatePosts,
-                resolvedUsername: searchUsername,
+        const cycleConfirmedCommentOwners = [...new Set(
+            cycleCommentScanResult.events
+                .map((event) => event.postOwnerUsername)
+                .filter((ownerUsername) => ownerUsername && ownerUsername !== currentCycleSearchUsername),
+        )];
+
+        let cycleOwnerExpansionWarnings: string[] = [];
+        let cycleOwnerExpansionProfiles = 0;
+        let cycleOwnerExpansionPosts = 0;
+
+        if (cycleConfirmedCommentOwners.length > 0) {
+            const expandedCommentOwnerProfiles = await expandPublicProfiles({
+                profileUsernames: cycleConfirmedCommentOwners,
+                searchUsername,
+                discoverySource: 'expanded_owner_graph',
             });
 
-            commentScanResult.scannedPosts += extraCommentScanResult.scannedPosts;
-            commentScanResult.visibleCommentsScanned += extraCommentScanResult.visibleCommentsScanned;
-            commentScanResult.partialFailures += extraCommentScanResult.partialFailures;
-            commentScanResult.warnings.push(...extraCommentScanResult.warnings);
-            commentScanResult.events.push(...extraCommentScanResult.events);
-            commentScanResult.ambiguousCandidates.push(...extraCommentScanResult.ambiguousCandidates);
+            cycleOwnerExpansionWarnings = expandedCommentOwnerProfiles.warnings;
+            cycleOwnerExpansionProfiles = expandedCommentOwnerProfiles.expandedOwnerProfiles;
 
-            discoveryPlan.candidatePosts.push(...extraCandidatePosts);
+            const extraCandidatePosts = expandedCommentOwnerProfiles.expandedPosts.filter((post) => {
+                return !scannedShortcodes.has(post.shortcode) && !cycleCandidatePosts.some((existingPost) => existingPost.shortcode === post.shortcode);
+            });
+            cycleOwnerExpansionPosts = extraCandidatePosts.length;
+
+            if (extraCandidatePosts.length > 0) {
+                log.info(`Cycle ${cycleIndex + 1}: confirmed-comment owner expansion added ${extraCandidatePosts.length} new candidate posts.`);
+                for (const post of extraCandidatePosts) {
+                    knownCandidatePosts.set(post.shortcode, post);
+                }
+
+                const extraCommentScanResult = await scanCommentsOnCandidatePosts({
+                    candidatePosts: extraCandidatePosts,
+                    resolvedUsername: searchUsername,
+                });
+
+                for (const post of extraCandidatePosts) {
+                    scannedShortcodes.add(post.shortcode);
+                }
+
+                cycleCommentScanResult.scannedPosts += extraCommentScanResult.scannedPosts;
+                cycleCommentScanResult.visibleCommentsScanned += extraCommentScanResult.visibleCommentsScanned;
+                cycleCommentScanResult.structuredCommentsScanned += extraCommentScanResult.structuredCommentsScanned;
+                cycleCommentScanResult.partialFailures += extraCommentScanResult.partialFailures;
+                cycleCommentScanResult.warnings.push(...extraCommentScanResult.warnings);
+                cycleCommentScanResult.events.push(...extraCommentScanResult.events);
+                cycleCommentScanResult.ambiguousCandidates.push(...extraCommentScanResult.ambiguousCandidates);
+            }
+        }
+
+        aggregatedCommentScanResult.scannedPosts += cycleCommentScanResult.scannedPosts;
+        aggregatedCommentScanResult.visibleCommentsScanned += cycleCommentScanResult.visibleCommentsScanned;
+        aggregatedCommentScanResult.structuredCommentsScanned += cycleCommentScanResult.structuredCommentsScanned;
+        aggregatedCommentScanResult.partialFailures += cycleCommentScanResult.partialFailures;
+        aggregatedCommentScanResult.warnings.push(...cycleCommentScanResult.warnings);
+        aggregatedCommentScanResult.events.push(...cycleCommentScanResult.events);
+        aggregatedCommentScanResult.ambiguousCandidates.push(...cycleCommentScanResult.ambiguousCandidates);
+        ownerExpansionWarnings.push(...cycleOwnerExpansionWarnings);
+        ownerExpansionProfiles += cycleOwnerExpansionProfiles;
+        ownerExpansionPosts += cycleOwnerExpansionPosts;
+
+        targetCandidateCache = await persistCandidateDiscoveryCache({
+            store: candidateCacheStore,
+            targetUsername: searchUsername,
+            candidatePosts: [...knownCandidatePosts.values()],
+            fruitfulOwnerUsernames: cycleConfirmedCommentOwners,
+            frontierUsernames: [...knownCandidatePosts.values()]
+                .flatMap((post) => [post.ownerUsername, ...post.mentionedUsernames])
+                .filter((username) => Boolean(username) && username !== currentCycleSearchUsername),
+            ownerStatUpdates: cycleConfirmedCommentOwners.map((ownerUsername) => ({
+                username: ownerUsername.toLowerCase(),
+                successfulCommentCountDelta: cycleCommentScanResult.events.filter((event) => event.postOwnerUsername === ownerUsername).length,
+                successfulRunIncrement: 1,
+                expandedPostCountDelta: [...knownCandidatePosts.values()].filter((post) => post.ownerUsername === ownerUsername).length,
+                lastSuccessfulAt: new Date().toISOString(),
+            })),
+            previousState: targetCandidateCache,
+        });
+
+        if (cycleCommentScanResult.events.length === 0 && cycleOwnerExpansionPosts === 0) {
+            noProgressCycles += 1;
+        } else {
+            noProgressCycles = 0;
+        }
+
+        if (noProgressCycles >= (input.runMode === 'freshness' ? 1 : 2)) {
+            stoppedBecause = 'saturated';
+            break;
         }
     }
 
-    await persistCandidateDiscoveryCache({
-        store: candidateCacheStore,
-        targetUsername: searchUsername,
-        candidatePosts: discoveryPlan.candidatePosts,
-        fruitfulOwnerUsernames: confirmedCommentOwners,
-        frontierUsernames: discoveryPlan.candidatePosts
-            .flatMap((post) => [post.ownerUsername, ...post.mentionedUsernames])
-            .filter((username) => Boolean(username) && username !== searchUsername),
-        ownerStatUpdates: confirmedCommentOwners.map((ownerUsername) => ({
-            username: ownerUsername.toLowerCase(),
-            successfulCommentCountDelta: commentScanResult.events.filter((event) => event.postOwnerUsername === ownerUsername).length,
-            successfulRunIncrement: 1,
-            expandedPostCountDelta: discoveryPlan.candidatePosts.filter((post) => post.ownerUsername === ownerUsername).length,
-            lastSuccessfulAt: new Date().toISOString(),
-        })),
-        previousState: targetCandidateCache,
-    });
+    const commentScanResult = aggregatedCommentScanResult;
+
+    const finalCandidatePosts = [...knownCandidatePosts.values()];
 
     const likedContentScanResult = scanLikedContentAppearances({
-        candidatePosts: discoveryPlan.candidatePosts,
+        candidatePosts: finalCandidatePosts,
         resolvedUsername: searchUsername,
     });
     const mentionTaggedScanResult = scanMentionTaggedAppearances({
-        candidatePosts: discoveryPlan.candidatePosts,
+        candidatePosts: finalCandidatePosts,
         resolvedUsername: searchUsername,
     });
     log.info(`Comment scan finished with ${commentScanResult.events.length} confirmed comments and ${commentScanResult.ambiguousCandidates.length} ambiguous comment candidates.`);
@@ -512,7 +638,7 @@ async function run(): Promise<void> {
     const coverageLevel = computeCoverageLevel({
         browserAvailable: commentScanResult.browserAvailable,
         scannedPosts: commentScanResult.scannedPosts,
-        candidatePosts: discoveryPlan.candidatePosts.length,
+        candidatePosts: finalCandidatePosts.length,
         partialFailures: commentScanResult.partialFailures,
     });
     const scanState = computeScanState({
@@ -609,7 +735,7 @@ async function run(): Promise<void> {
     }
 
     const status: RunStatus = (() => {
-        if (scanState === 'partial_failure' || discoveryPlan.searchMode === 'degraded') {
+        if (scanState === 'partial_failure' || lastDiscoverySearchMode === 'degraded') {
             return 'partial_coverage';
         }
 
@@ -628,19 +754,19 @@ async function run(): Promise<void> {
     });
 
     const coverageReason = (() => {
-        if (discoveryPlan.searchMode === 'degraded' && discoveryPlan.candidatePosts.length === 0) {
+        if (lastDiscoverySearchMode === 'degraded' && finalCandidatePosts.length === 0) {
             return 'Canonical target resolution was temporarily unavailable. The Actor continued in degraded mode using the input username only, but the current discovery plan had no candidate public posts to inspect yet.';
         }
 
-        if (discoveryPlan.searchMode === 'degraded') {
+        if (lastDiscoverySearchMode === 'degraded') {
             return 'Canonical target resolution was temporarily unavailable. The Actor continued in degraded mode using public discovery signals and external public search, so coverage remains best-effort and partial.';
         }
 
-        if (targetIsPrivate && discoveryPlan.candidatePosts.length === 0) {
+        if (targetIsPrivate && finalCandidatePosts.length === 0) {
             return 'The target is private. The Actor continued in public comment hunting mode, but the current discovery plan had no candidate public posts to inspect yet.';
         }
 
-        if (discoveryPlan.candidatePosts.length === 0) {
+        if (finalCandidatePosts.length === 0) {
             return 'The current discovery plan produced no candidate public posts to inspect.';
         }
 
@@ -693,11 +819,11 @@ async function run(): Promise<void> {
         return 'No attributable public liker usernames were confirmed for the resolved target in the scanned public surfaces.';
     })();
 
-    const warnings = [...targetResolution.warnings, ...discoveryPlan.warnings, ...ownerExpansionWarnings, ...commentScanResult.warnings];
+    const warnings = [...targetResolution.warnings, ...aggregatedDiscoveryWarnings, ...ownerExpansionWarnings, ...commentScanResult.warnings];
     const summary: RunSummary = {
         status,
         message: (() => {
-            if (discoveryPlan.searchMode === 'degraded') {
+            if (lastDiscoverySearchMode === 'degraded') {
                 if (commentScanResult.events.length > 0) {
                     return `Canonical target resolution for @${input.username} was unavailable, but the Actor continued in degraded mode and found ${commentScanResult.events.length} confirmed public comments or replies.`;
                 }
@@ -732,6 +858,12 @@ async function run(): Promise<void> {
             return `Resolved @${searchUsername}, but confirmed public comment discovery completed with partial coverage.`;
         })(),
         resultState,
+        operation: {
+            runMode: input.runMode,
+            maxDiscoveryCycles: input.maxDiscoveryCycles,
+            cyclesCompleted,
+            stoppedBecause,
+        },
         target: {
             inputUsername: input.username,
             resolvedUsername: resolvedTarget?.username ?? null,
@@ -743,7 +875,7 @@ async function run(): Promise<void> {
             resultState: commentResultState,
             ambiguousRecordKey: ambiguousCommentRecordKey,
             counts: {
-                candidatePosts: discoveryPlan.candidatePosts.length,
+                candidatePosts: finalCandidatePosts.length,
                 scannedPosts: commentScanResult.scannedPosts,
                 visibleCommentsScanned: commentScanResult.visibleCommentsScanned,
                 structuredCommentsScanned: commentScanResult.structuredCommentsScanned,
@@ -753,15 +885,14 @@ async function run(): Promise<void> {
             },
         },
         discovery: {
-            searchMode: discoveryPlan.searchMode,
-            searchUsername: discoveryPlan.searchUsername,
+            searchMode: lastDiscoverySearchMode,
+            searchUsername: lastDiscoverySearchUsername,
             counts: {
-                ...discoveryPlan.discoveryCounts,
-                frontierProfilesQueued: discoveryPlan.discoveryCounts.frontierProfilesQueued,
-                expandedOwnerProfiles: discoveryPlan.discoveryCounts.expandedOwnerProfiles + ownerExpansionProfiles,
-                expandedOwnerPosts: discoveryPlan.discoveryCounts.expandedOwnerPosts + ownerExpansionPosts,
+                ...aggregatedDiscoveryCounts,
+                expandedOwnerProfiles: aggregatedDiscoveryCounts.expandedOwnerProfiles + ownerExpansionProfiles,
+                expandedOwnerPosts: aggregatedDiscoveryCounts.expandedOwnerPosts + ownerExpansionPosts,
             },
-            warnings: [...discoveryPlan.warnings, ...ownerExpansionWarnings],
+            warnings: [...aggregatedDiscoveryWarnings, ...ownerExpansionWarnings],
         },
         coverage: {
             level: coverageLevel,
@@ -807,8 +938,8 @@ async function run(): Promise<void> {
         },
         history: historyMergeResult.historySummary,
         counts: {
-            candidateProfiles: discoveryPlan.candidateProfiles,
-            candidatePosts: discoveryPlan.candidatePosts.length,
+            candidateProfiles: aggregatedCandidateProfiles,
+            candidatePosts: finalCandidatePosts.length,
             scannedPosts: commentScanResult.scannedPosts,
             visibleCommentsScanned: commentScanResult.visibleCommentsScanned,
             matchedComments: commentScanResult.events.length,

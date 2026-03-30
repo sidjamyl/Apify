@@ -20,6 +20,10 @@ This includes best-effort support for **public traces left by private accounts o
 
 - one Instagram username
 - no Instagram login required in the standard public flow
+- optional `runMode`:
+  - `backfill` for deeper multi-cycle discovery
+  - `freshness` for lighter repeated update runs
+- optional `maxDiscoveryCycles` to control how many internal discovery/scan cycles the Actor tries in a single run
 
 The Actor accepts usernames with or without a leading `@`.
 

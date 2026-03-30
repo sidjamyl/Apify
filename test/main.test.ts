@@ -32,7 +32,19 @@ describe('input parsing', () => {
     });
 
     it('validates the public username-only contract', () => {
-        expect(parseInput({ username: 'NASA' })).toEqual({ username: 'nasa' });
+        expect(parseInput({ username: 'NASA' })).toEqual({
+            username: 'nasa',
+            runMode: 'backfill',
+            maxDiscoveryCycles: 5,
+        });
+    });
+
+    it('supports freshness mode defaults', () => {
+        expect(parseInput({ username: 'NASA', runMode: 'freshness' })).toEqual({
+            username: 'nasa',
+            runMode: 'freshness',
+            maxDiscoveryCycles: 2,
+        });
     });
 });
 
