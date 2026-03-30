@@ -91,6 +91,13 @@ function mapPosts(
     return (edges ?? []).map((edge) => {
         const caption = edge.node.edge_media_to_caption?.edges?.[0]?.node?.text ?? null;
         const ownerUsername = edge.node.owner?.username ?? discoveredViaUsername ?? '';
+        const mentionedUsernames = extractMentionedUsernames(caption);
+        const taggedUsernames = (edge.node.edge_media_to_tagged_user?.edges ?? [])
+            .map((taggedUser) => taggedUser.node?.user?.username?.toLowerCase())
+            .filter((username): username is string => Boolean(username));
+        const coauthorUsernames = (edge.node.coauthor_producers ?? [])
+            .map((coauthor) => coauthor.username?.toLowerCase())
+            .filter((username): username is string => Boolean(username));
 
         return {
             id: edge.node.id,
@@ -98,6 +105,9 @@ function mapPosts(
             url: `https://www.instagram.com/p/${edge.node.shortcode}/`,
             ownerUsername: ownerUsername.toLowerCase(),
             caption,
+            mentionedUsernames,
+            taggedUsernames,
+            coauthorUsernames,
             takenAtTimestamp: edge.node.taken_at_timestamp ?? null,
             discoverySource,
             discoveredViaUsername,

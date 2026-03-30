@@ -11,6 +11,7 @@ import {
     parseCommentTextFromBlock,
 } from '../src/comment-utils.js';
 import { normalizeUsername, parseInput } from '../src/input.js';
+import { scanMentionTaggedAppearances } from '../src/mention-tagged-scan.js';
 
 describe('input parsing', () => {
     it('normalizes usernames with @ and case changes', () => {
@@ -96,5 +97,45 @@ describe('comment utilities', () => {
         expect(computeConfidenceLevel({ exactMatches: 1, ambiguousCandidates: 2 })).toBe('medium');
         expect(computeConfidenceLevel({ exactMatches: 0, ambiguousCandidates: 1 })).toBe('low');
         expect(computeConfidenceLevel({ exactMatches: 0, ambiguousCandidates: 0 })).toBe('unknown');
+    });
+});
+
+describe('mention and tagged scan', () => {
+    it('emits separate mention and tagged appearance events from non-owned posts', () => {
+        const result = scanMentionTaggedAppearances({
+            resolvedUsername: 'nasa',
+            candidatePosts: [
+                {
+                    id: '1',
+                    shortcode: 'abc',
+                    url: 'https://www.instagram.com/p/abc/',
+                    ownerUsername: 'esa',
+                    caption: 'Hello @nasa',
+                    mentionedUsernames: ['nasa'],
+                    taggedUsernames: ['nasa'],
+                    coauthorUsernames: [],
+                    takenAtTimestamp: 1700000000,
+                    discoverySource: 'related_profile',
+                    discoveredViaUsername: 'esa',
+                },
+                {
+                    id: '2',
+                    shortcode: 'def',
+                    url: 'https://www.instagram.com/p/def/',
+                    ownerUsername: 'nasa',
+                    caption: '@nasa self mention',
+                    mentionedUsernames: ['nasa'],
+                    taggedUsernames: ['nasa'],
+                    coauthorUsernames: [],
+                    takenAtTimestamp: 1700000001,
+                    discoverySource: 'target_profile',
+                    discoveredViaUsername: null,
+                },
+            ],
+        });
+
+        expect(result.scannedPosts).toBe(1);
+        expect(result.events.map((event) => event.type)).toEqual(['mention', 'tagged_appearance']);
+        expect(result.events.every((event) => event.postShortcode === 'abc')).toBe(true);
     });
 });

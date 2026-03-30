@@ -4,7 +4,7 @@
 	"properties": {
 		"comments": {
 			"type": "string",
-			"title": "Matched comment events",
+			"title": "Matched activity events",
 			"template": "{{links.apiDefaultDatasetUrl}}/items"
 		},
 		"runSummary": {

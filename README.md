@@ -1,12 +1,13 @@
 # Instagram Public Comment Discovery
 
-Best-effort Apify Actor for `#3`: start from a single Instagram username, resolve the public target profile, inspect directly reachable recent public post surfaces, and return matched public comments and visible replies authored by that target.
+Best-effort Apify Actor for `#5`: start from a single Instagram username, resolve the public target profile, inspect directly reachable recent public post surfaces, and return matched public comments, visible replies, caption mentions, and tagged appearances involving that target.
 
 ## Current scope
 
 - Public-only
 - Username-only input
 - Comments and replies when visible
+- Mentions and tagged appearances as supporting surfaces
 - Exact username matching on visible public comment blocks, with ambiguous near-matches flagged separately in the run summary
 - Structured dataset items plus a `RUN_SUMMARY` record in the default key-value store
 
@@ -18,7 +19,13 @@ The Actor resolves the target profile through Instagram's public web profile end
 - Instagram usernames mentioned in those recent captions
 - co-authors and tagged users visible on those recent posts
 
-For each candidate post, the Actor inspects the visible comment thread on the public post page, tries to expand visible replies when possible, and keeps comments or replies whose visible author username matches the resolved target username exactly.
+For each candidate post, the Actor:
+
+- inspects the visible comment thread on the public post page
+- tries to expand visible replies when possible
+- keeps comments or replies whose visible author username matches the resolved target username exactly
+- scans non-owned candidate posts for exact caption mentions of the target username
+- scans non-owned candidate posts for exact tagged-user appearances of the target username
 
 ## Important limitations
 
@@ -27,6 +34,7 @@ For each candidate post, the Actor inspects the visible comment thread on the pu
 - For many posts, only a limited set of visible comments is accessible without login.
 - If a browser runtime is unavailable, the Actor returns a partial-coverage summary instead of failing the whole run.
 - Replies are included only when Instagram exposes them in the public visible thread.
+- Mention and tagged coverage is limited to the candidate-post discovery scope already available to the Actor.
 - Ambiguous near-matches are flagged in the run summary and are not blended into confirmed results.
 - Likes, mentions/tagged output, and tombstones are out of scope for this issue and will be added in later issues.
 
@@ -34,15 +42,18 @@ For each candidate post, the Actor inspects the visible comment thread on the pu
 
 Dataset items contain matched comment events.
 
+The dataset now also includes `mention` and `tagged_appearance` events as distinct activity types.
+
 `RUN_SUMMARY` contains:
 
 - target resolution status
 - user-facing message
 - target snapshot
 - counts
-- qualitative coverage and scan state
-- confidence summary and ambiguous candidate samples
-	- warnings
+- comments coverage and scan state
+- comments confidence summary and ambiguous candidate samples
+- mention/tagged coverage reported separately from comments
+- warnings
 
 ## Local development
 

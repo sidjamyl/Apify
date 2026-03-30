@@ -11,6 +11,7 @@ export type ScanState = 'complete' | 'low_coverage' | 'partial_failure';
 export type DiscoverySource = 'target_profile' | 'related_profile';
 export type MatchConfidence = 'exact_username_visible';
 export type CommentKind = 'top_level' | 'reply';
+export type AppearanceType = 'comment' | 'mention' | 'tagged_appearance';
 
 export interface ActorInput {
     username: string;
@@ -22,6 +23,9 @@ export interface InstagramPost {
     url: string;
     ownerUsername: string;
     caption: string | null;
+    mentionedUsernames: string[];
+    taggedUsernames: string[];
+    coauthorUsernames: string[];
     takenAtTimestamp: number | null;
     discoverySource: DiscoverySource;
     discoveredViaUsername: string | null;
@@ -60,6 +64,42 @@ export interface CommentEvent {
     matchConfidence: MatchConfidence;
     matchReason: string;
 }
+
+export interface MentionEvent {
+    type: 'mention';
+    targetUsername: string;
+    resolvedUsername: string;
+    appearanceText: string | null;
+    createdAt: string | null;
+    postUrl: string;
+    postShortcode: string;
+    postOwnerUsername: string;
+    sourceSurface: 'instagram_post_caption_mention';
+    sourceUrl: string;
+    discoverySource: DiscoverySource;
+    discoveredViaUsername: string | null;
+    matchConfidence: MatchConfidence;
+    matchReason: string;
+}
+
+export interface TaggedAppearanceEvent {
+    type: 'tagged_appearance';
+    targetUsername: string;
+    resolvedUsername: string;
+    appearanceText: string | null;
+    createdAt: string | null;
+    postUrl: string;
+    postShortcode: string;
+    postOwnerUsername: string;
+    sourceSurface: 'instagram_post_tagged_user';
+    sourceUrl: string;
+    discoverySource: DiscoverySource;
+    discoveredViaUsername: string | null;
+    matchConfidence: MatchConfidence;
+    matchReason: string;
+}
+
+export type AppearanceEvent = CommentEvent | MentionEvent | TaggedAppearanceEvent;
 
 export interface CoverageSummary {
     level: CoverageLevel;
@@ -107,6 +147,17 @@ export interface RunSummary {
     target: TargetSnapshot;
     coverage: CoverageSummary;
     confidence: ConfidenceSummary;
+    mentionTagged: {
+        coverage: CoverageSummary;
+        counts: {
+            scannedPosts: number;
+            mentionEvents: number;
+            taggedAppearanceEvents: number;
+            partialFailures: number;
+            warnings: number;
+        };
+        warnings: string[];
+    };
     counts: {
         candidateProfiles: number;
         candidatePosts: number;
@@ -114,6 +165,8 @@ export interface RunSummary {
         visibleCommentsScanned: number;
         matchedComments: number;
         matchedReplies: number;
+        mentionEvents: number;
+        taggedAppearanceEvents: number;
         ambiguousCandidates: number;
         partialFailures: number;
         warnings: number;
@@ -140,4 +193,11 @@ export interface CommentScanResult {
     warnings: string[];
     events: CommentEvent[];
     ambiguousCandidates: AmbiguousCommentCandidate[];
+}
+
+export interface MentionTaggedScanResult {
+    scannedPosts: number;
+    partialFailures: number;
+    warnings: string[];
+    events: (MentionEvent | TaggedAppearanceEvent)[];
 }

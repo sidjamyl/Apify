@@ -11,19 +11,22 @@
 			"type": "string"
 		},
 		"commentOwnerUsername": {
-			"type": "string"
+			"type": ["string", "null"]
 		},
 		"commentKind": {
-			"type": "string"
+			"type": ["string", "null"]
 		},
 		"replyDepth": {
-			"type": "number"
+			"type": ["number", "null"]
 		},
 		"parentCommentPermalink": {
 			"type": ["string", "null"]
 		},
 		"commentText": {
-			"type": "string"
+			"type": ["string", "null"]
+		},
+		"appearanceText": {
+			"type": ["string", "null"]
 		},
 		"createdAt": {
 			"type": ["string", "null"],
@@ -33,7 +36,7 @@
 			"type": ["string", "null"]
 		},
 		"commentPermalink": {
-			"type": "string"
+			"type": ["string", "null"]
 		},
 		"postUrl": {
 			"type": "string"
@@ -65,19 +68,21 @@
 	},
 	"views": {
 		"overview": {
-			"title": "Matched comments",
+			"title": "Matched activity",
 			"transformation": {
 				"fields": [
+					"type",
 					"createdAt",
 					"targetUsername",
 					"commentOwnerUsername",
+					"postOwnerUsername",
 					"commentKind",
 					"replyDepth",
 					"commentText",
+					"appearanceText",
 					"commentPermalink",
 					"parentCommentPermalink",
 					"postUrl",
-					"postOwnerUsername",
 					"discoverySource",
 					"discoveredViaUsername",
 					"matchConfidence"
@@ -87,6 +92,9 @@
 			"display": {
 				"component": "table",
 				"properties": {
+					"type": {
+						"label": "Type"
+					},
 					"createdAt": {
 						"label": "Created at",
 						"format": "date"
@@ -106,6 +114,9 @@
 					},
 					"commentText": {
 						"label": "Comment text"
+					},
+					"appearanceText": {
+						"label": "Appearance text"
 					},
 					"commentPermalink": {
 						"label": "Comment permalink",

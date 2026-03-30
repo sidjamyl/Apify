@@ -10,7 +10,8 @@ import {
 } from './comment-utils.js';
 import { parseInput } from './input.js';
 import { buildDiscoveryPlan, resolveTargetProfile } from './instagram-profile.js';
-import type { RunStatus, RunSummary } from './types.js';
+import { scanMentionTaggedAppearances } from './mention-tagged-scan.js';
+import type { CoverageLevel, RunStatus, RunSummary, ScanState } from './types.js';
 
 Actor.on('aborting', async () => {
     await setTimeout(1_000);
@@ -67,6 +68,21 @@ function buildNoScanSummary(input: {
             ambiguousCandidates: 0,
             ambiguousSamples: [],
         },
+        mentionTagged: {
+            coverage: {
+                level: 'unknown',
+                scanState: 'partial_failure',
+                reason: 'Mention and tagged discovery was not attempted because the target could not be scanned successfully.',
+            },
+            counts: {
+                scannedPosts: 0,
+                mentionEvents: 0,
+                taggedAppearanceEvents: 0,
+                partialFailures: partialFailures > 0 ? 1 : 0,
+                warnings: 0,
+            },
+            warnings: [],
+        },
         counts: {
             candidateProfiles: isAvailable ? 1 : 0,
             candidatePosts: 0,
@@ -74,11 +90,73 @@ function buildNoScanSummary(input: {
             visibleCommentsScanned: 0,
             matchedComments: 0,
             matchedReplies: 0,
+            mentionEvents: 0,
+            taggedAppearanceEvents: 0,
             ambiguousCandidates: 0,
             partialFailures,
             warnings: warnings.length,
         },
         warnings,
+    };
+}
+
+function computeMentionTaggedCoverage(input: {
+    scannedPosts: number;
+    mentionEvents: number;
+    taggedAppearanceEvents: number;
+    partialFailures: number;
+}): { level: CoverageLevel; scanState: ScanState; reason: string } {
+    const {
+        scannedPosts,
+        mentionEvents,
+        taggedAppearanceEvents,
+        partialFailures,
+    } = input;
+
+    if (partialFailures > 0) {
+        return {
+            level: 'low',
+            scanState: 'partial_failure',
+            reason: 'The mention/tagged branch encountered failures, so supporting-surface coverage is incomplete.',
+        };
+    }
+
+    if (scannedPosts === 0) {
+        return {
+            level: 'unknown',
+            scanState: 'low_coverage',
+            reason: 'No non-owned public candidate posts were available for mention or tagged-appearance discovery.',
+        };
+    }
+
+    if (scannedPosts >= 8) {
+        return {
+            level: 'high',
+            scanState: 'complete',
+            reason: 'The Actor inspected a broader supporting-post sample for caption mentions and tagged appearances.',
+        };
+    }
+
+    if (scannedPosts >= 4) {
+        return {
+            level: 'medium',
+            scanState: 'complete',
+            reason: 'The Actor inspected multiple non-owned public posts for mentions and tagged appearances.',
+        };
+    }
+
+    if (mentionEvents > 0 || taggedAppearanceEvents > 0) {
+        return {
+            level: 'low',
+            scanState: 'low_coverage',
+            reason: 'The Actor found supporting mention/tagged appearances, but only in a narrow public supporting-post sample.',
+        };
+    }
+
+    return {
+        level: 'low',
+        scanState: 'low_coverage',
+        reason: 'Only a narrow public supporting-post sample was available for mention/tagged discovery.',
     };
 }
 
@@ -151,9 +229,19 @@ async function run(): Promise<void> {
         candidatePosts: discoveryPlan.candidatePosts,
         resolvedUsername: resolvedTarget.username,
     });
+    const mentionTaggedScanResult = scanMentionTaggedAppearances({
+        candidatePosts: discoveryPlan.candidatePosts,
+        resolvedUsername: resolvedTarget.username,
+    });
 
-    if (commentScanResult.events.length > 0) {
-        await Actor.pushData(commentScanResult.events);
+    const allEvents = [...commentScanResult.events, ...mentionTaggedScanResult.events].sort((left, right) => {
+        const leftTimestamp = left.createdAt ? Date.parse(left.createdAt) : 0;
+        const rightTimestamp = right.createdAt ? Date.parse(right.createdAt) : 0;
+        return rightTimestamp - leftTimestamp;
+    });
+
+    if (allEvents.length > 0) {
+        await Actor.pushData(allEvents);
     }
 
     const coverageLevel = computeCoverageLevel({
@@ -167,20 +255,28 @@ async function run(): Promise<void> {
         partialFailures: commentScanResult.partialFailures,
         coverageLevel,
     });
+    const mentionEvents = mentionTaggedScanResult.events.filter((event) => event.type === 'mention').length;
+    const taggedAppearanceEvents = mentionTaggedScanResult.events.filter((event) => event.type === 'tagged_appearance').length;
+    const mentionTaggedCoverage = computeMentionTaggedCoverage({
+        scannedPosts: mentionTaggedScanResult.scannedPosts,
+        mentionEvents,
+        taggedAppearanceEvents,
+        partialFailures: mentionTaggedScanResult.partialFailures,
+    });
 
     const status: RunStatus = (() => {
         if (scanState === 'partial_failure') {
             return 'partial_coverage';
         }
 
-        if (commentScanResult.events.length > 0) {
+        if (allEvents.length > 0) {
             return 'resolved_with_results';
         }
 
         return 'resolved_no_results';
     })();
 
-    const resultState = commentScanResult.events.length > 0 ? 'results_found' : 'nothing_found';
+    const resultState = allEvents.length > 0 ? 'results_found' : 'nothing_found';
     const matchedReplies = commentScanResult.events.filter((event) => event.commentKind === 'reply').length;
     const confidenceLevel = computeConfidenceLevel({
         exactMatches: commentScanResult.events.length,
@@ -226,11 +322,11 @@ async function run(): Promise<void> {
         status,
         message: (() => {
             if (status === 'resolved_with_results') {
-                return `Resolved @${resolvedTarget.username} and found ${commentScanResult.events.length} matched public comments or replies.`;
+                return `Resolved @${resolvedTarget.username} and found ${allEvents.length} public activity events across comments, mentions, and tagged appearances.`;
             }
 
             if (status === 'resolved_no_results') {
-                return `Resolved @${resolvedTarget.username}, but found no matched public comments or replies in the inspected discovery scope.`;
+                return `Resolved @${resolvedTarget.username}, but found no public comments, mentions, or tagged appearances in the inspected discovery scope.`;
             }
 
             return `Resolved @${resolvedTarget.username}, but comment discovery completed with partial coverage.`;
@@ -255,6 +351,17 @@ async function run(): Promise<void> {
             ambiguousCandidates: commentScanResult.ambiguousCandidates.length,
             ambiguousSamples: commentScanResult.ambiguousCandidates,
         },
+        mentionTagged: {
+            coverage: mentionTaggedCoverage,
+            counts: {
+                scannedPosts: mentionTaggedScanResult.scannedPosts,
+                mentionEvents,
+                taggedAppearanceEvents,
+                partialFailures: mentionTaggedScanResult.partialFailures,
+                warnings: mentionTaggedScanResult.warnings.length,
+            },
+            warnings: mentionTaggedScanResult.warnings,
+        },
         counts: {
             candidateProfiles: discoveryPlan.candidateProfiles,
             candidatePosts: discoveryPlan.candidatePosts.length,
@@ -262,11 +369,13 @@ async function run(): Promise<void> {
             visibleCommentsScanned: commentScanResult.visibleCommentsScanned,
             matchedComments: commentScanResult.events.length,
             matchedReplies,
+            mentionEvents,
+            taggedAppearanceEvents,
             ambiguousCandidates: commentScanResult.ambiguousCandidates.length,
-            partialFailures: commentScanResult.partialFailures,
-            warnings: warnings.length,
+            partialFailures: commentScanResult.partialFailures + mentionTaggedScanResult.partialFailures,
+            warnings: warnings.length + mentionTaggedScanResult.warnings.length,
         },
-        warnings,
+        warnings: [...warnings, ...mentionTaggedScanResult.warnings],
     };
 
     await Actor.setValue('RUN_SUMMARY', summary);
