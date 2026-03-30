@@ -21,6 +21,7 @@ export interface ActorInput {
 
 export interface InstagramPost {
     id: string;
+    mediaId: string | null;
     shortcode: string;
     url: string;
     ownerUsername: string;
@@ -190,6 +191,7 @@ export interface RunSummary {
             candidatePosts: number;
             scannedPosts: number;
             visibleCommentsScanned: number;
+            structuredCommentsScanned: number;
             confirmedComments: number;
             confirmedReplies: number;
             ambiguousCandidates: number;
@@ -288,6 +290,7 @@ export interface CommentScanResult {
     browserAvailable: boolean;
     scannedPosts: number;
     visibleCommentsScanned: number;
+    structuredCommentsScanned: number;
     partialFailures: number;
     warnings: string[];
     events: CommentEvent[];

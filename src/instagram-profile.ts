@@ -175,6 +175,7 @@ function mapPosts(
 
         return {
             id: edge.node.id,
+            mediaId: edge.node.id,
             shortcode: edge.node.shortcode,
             url: `https://www.instagram.com/p/${edge.node.shortcode}/`,
             ownerUsername: ownerUsername.toLowerCase(),

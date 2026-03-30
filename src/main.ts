@@ -78,6 +78,7 @@ function buildNoScanSummary(input: {
                 candidatePosts: 0,
                 scannedPosts: 0,
                 visibleCommentsScanned: 0,
+                structuredCommentsScanned: 0,
                 confirmedComments: 0,
                 confirmedReplies: 0,
                 ambiguousCandidates: 0,
@@ -373,6 +374,7 @@ async function run(): Promise<void> {
                     const { payload } = event;
                     return [payload.postShortcode, {
                         id: `history:${payload.postShortcode}`,
+                        mediaId: null,
                         shortcode: payload.postShortcode,
                         url: payload.postUrl,
                         ownerUsername: payload.postOwnerUsername,
@@ -732,6 +734,7 @@ async function run(): Promise<void> {
                 candidatePosts: discoveryPlan.candidatePosts.length,
                 scannedPosts: commentScanResult.scannedPosts,
                 visibleCommentsScanned: commentScanResult.visibleCommentsScanned,
+                structuredCommentsScanned: commentScanResult.structuredCommentsScanned,
                 confirmedComments: commentScanResult.events.length,
                 confirmedReplies: matchedReplies,
                 ambiguousCandidates: commentScanResult.ambiguousCandidates.length,

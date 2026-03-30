@@ -172,6 +172,7 @@ describe('issue 10 target handling groundwork', () => {
 
         expect(result.browserAvailable).toBe(true);
         expect(result.scannedPosts).toBe(0);
+        expect(result.structuredCommentsScanned).toBe(0);
         expect(result.events).toEqual([]);
         expect(result.warnings.some((warning) => warning.includes('No candidate public posts'))).toBe(true);
     });

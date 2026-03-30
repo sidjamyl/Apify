@@ -18,6 +18,13 @@ import type {
 const POST_WAIT_MS = 4_000;
 const MAX_AMBIGUOUS_SAMPLES = 10;
 const MAX_EXPANSION_SAFETY_STEPS = 100;
+const MAX_COMMENT_API_PAGES = 250;
+const COMMENT_API_HEADERS = {
+    Accept: 'application/json, text/plain, */*',
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'X-IG-App-ID': '936619743392459',
+    'X-Requested-With': 'XMLHttpRequest',
+};
 
 async function countVisibleCommentPermalinks(page: Page): Promise<number> {
     return page.evaluate(() => {
@@ -31,6 +38,134 @@ async function countVisibleCommentPermalinks(page: Page): Promise<number> {
 interface RawDomCommentCandidate extends ScrapedVisibleComment {
     rawText: string;
     rawTextLength: number;
+}
+
+interface StructuredCommentFetchResult {
+    comments: ScrapedVisibleComment[];
+    warnings: string[];
+    scannedCount: number;
+}
+
+interface RawApiComment {
+    pk?: string;
+    text?: string;
+    created_at?: number;
+    user?: {
+        username?: string;
+    };
+    child_comment_count?: number;
+    preview_child_comments?: RawApiComment[];
+    child_comments?: RawApiComment[];
+}
+
+function toIsoDate(createdAt: number | undefined): string | null {
+    return typeof createdAt === 'number' ? new Date(createdAt * 1000).toISOString() : null;
+}
+
+function buildCommentPermalink(shortcode: string, pk: string | undefined): string {
+    return pk ? `https://www.instagram.com/p/${shortcode}/c/${pk}/` : `https://www.instagram.com/p/${shortcode}/`;
+}
+
+function mapApiComment(comment: RawApiComment, post: InstagramPost, commentKind: 'top_level' | 'reply', replyDepth: number, parentCommentPermalink: string | null): ScrapedVisibleComment | null {
+    const ownerUsername = comment.user?.username?.toLowerCase();
+    const commentText = comment.text?.trim();
+    if (!ownerUsername || !commentText) return null;
+
+    return {
+        ownerUsername,
+        commentKind,
+        replyDepth,
+        parentCommentPermalink,
+        commentText,
+        createdAt: toIsoDate(comment.created_at),
+        createdAtLabel: null,
+        commentPermalink: buildCommentPermalink(post.shortcode, comment.pk),
+    };
+}
+
+async function fetchStructuredCommentsForPost(post: InstagramPost): Promise<StructuredCommentFetchResult | null> {
+    if (!post.mediaId || !/^\d+$/.test(post.mediaId)) {
+        return null;
+    }
+
+    const warnings: string[] = [];
+    const comments: ScrapedVisibleComment[] = [];
+    let scannedCount = 0;
+    let nextMinId: string | null = null;
+
+    for (let pageIndex = 0; pageIndex < MAX_COMMENT_API_PAGES; pageIndex++) {
+        const endpointUrl = new URL(`https://www.instagram.com/api/v1/media/${post.mediaId}/comments/`);
+        endpointUrl.searchParams.set('can_support_threading', 'true');
+        endpointUrl.searchParams.set('permalink_enabled', 'false');
+        if (nextMinId) {
+            endpointUrl.searchParams.set('min_id', nextMinId);
+        }
+
+        let responseText: string;
+        try {
+            const response = await fetch(endpointUrl, {
+                headers: {
+                    ...COMMENT_API_HEADERS,
+                    Referer: post.url,
+                },
+                signal: AbortSignal.timeout(30_000),
+            });
+
+            if (!response.ok) {
+                if (pageIndex === 0) return null;
+                warnings.push(`Structured comment API returned HTTP ${response.status} for ${post.url}.`);
+                break;
+            }
+
+            responseText = await response.text();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown structured comment fetch error.';
+            if (pageIndex === 0) return null;
+            warnings.push(`Structured comment API failed for ${post.url}: ${message}`);
+            break;
+        }
+
+        let payload: { comments?: RawApiComment[]; next_min_id?: string | null; status?: string; };
+        try {
+            payload = JSON.parse(responseText) as { comments?: RawApiComment[]; next_min_id?: string | null; status?: string; };
+        } catch {
+            if (pageIndex === 0) {
+                return null;
+            }
+            warnings.push(`Structured comment API returned a non-JSON payload for ${post.url}.`);
+            break;
+        }
+
+        const pageComments = payload.comments ?? [];
+        for (const comment of pageComments) {
+            const topLevelComment = mapApiComment(comment, post, 'top_level', 0, null);
+            if (topLevelComment) {
+                comments.push(topLevelComment);
+                scannedCount += 1;
+            }
+
+            const previewChildComments = comment.preview_child_comments ?? comment.child_comments ?? [];
+            const parentCommentPermalink = buildCommentPermalink(post.shortcode, comment.pk);
+            for (const childComment of previewChildComments) {
+                const replyComment = mapApiComment(childComment, post, 'reply', 1, parentCommentPermalink);
+                if (replyComment) {
+                    comments.push(replyComment);
+                    scannedCount += 1;
+                }
+            }
+        }
+
+        nextMinId = payload.next_min_id ?? null;
+        if (!nextMinId || pageComments.length === 0) {
+            break;
+        }
+    }
+
+    return {
+        comments: dedupeByKey(comments, (comment) => comment.commentPermalink),
+        warnings,
+        scannedCount,
+    };
 }
 
 async function tryExpandVisibleComments(page: Page): Promise<void> {
@@ -264,6 +399,7 @@ export async function scanCommentsOnCandidatePosts(input: {
             browserAvailable: true,
             scannedPosts: 0,
             visibleCommentsScanned: 0,
+            structuredCommentsScanned: 0,
             partialFailures: 0,
             warnings: ['No candidate public posts were available for comment scanning.'],
             events: [],
@@ -277,39 +413,55 @@ export async function scanCommentsOnCandidatePosts(input: {
     const ambiguousCandidates: AmbiguousCommentCandidate[] = [];
 
     let browser: Browser | null = null;
-    try {
-        browser = await chromium.launch({ headless: true });
-    } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown browser launch error.';
-        warnings.push(`Browser fallback is unavailable in the current runtime: ${message}`);
-
-        return {
-            browserAvailable: false,
-            scannedPosts: 0,
-            visibleCommentsScanned: 0,
-            partialFailures: candidatePosts.length > 0 ? 1 : 0,
-            warnings,
-            events: [],
-            ambiguousCandidates,
-        };
-    }
-
-    const page = await browser.newPage({ viewport: { width: 1280, height: 2200 } });
+    let page: Page | null = null;
     let scannedPosts = 0;
     let visibleCommentsScanned = 0;
+    let structuredCommentsScanned = 0;
     let partialFailures = 0;
     const matchedEvents: CommentEvent[] = [];
 
     for (const post of candidatePosts) {
         try {
-            await page.goto(post.url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-            await page.waitForTimeout(POST_WAIT_MS);
-            await tryExpandVisibleComments(page);
-            await tryExpandReplies(page);
-
-            const visibleComments = await extractVisibleComments(page);
             scannedPosts += 1;
-            visibleCommentsScanned += visibleComments.length;
+            let visibleComments: ScrapedVisibleComment[] = [];
+
+            const structuredComments = await fetchStructuredCommentsForPost(post);
+            if (structuredComments) {
+                visibleComments = structuredComments.comments;
+                structuredCommentsScanned += structuredComments.scannedCount;
+                warnings.push(...structuredComments.warnings);
+            } else {
+                if (!browser) {
+                    try {
+                        browser = await chromium.launch({ headless: true });
+                        page = await browser.newPage({ viewport: { width: 1280, height: 2200 } });
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : 'Unknown browser launch error.';
+                        warnings.push(`Browser fallback is unavailable in the current runtime: ${message}`);
+                        return {
+                            browserAvailable: false,
+                            scannedPosts,
+                            visibleCommentsScanned,
+                            structuredCommentsScanned,
+                            partialFailures: partialFailures + 1,
+                            warnings,
+                            events: dedupeByKey(matchedEvents, (event) => event.commentPermalink),
+                            ambiguousCandidates,
+                        };
+                    }
+                }
+
+                if (!page) {
+                    throw new Error('Browser page is not available for DOM fallback.');
+                }
+
+                await page.goto(post.url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+                await page.waitForTimeout(POST_WAIT_MS);
+                await tryExpandVisibleComments(page);
+                await tryExpandReplies(page);
+                visibleComments = await extractVisibleComments(page);
+                visibleCommentsScanned += visibleComments.length;
+            }
 
             const matchedComments = visibleComments.filter((comment) => {
                 const classification = classifyCommentOwnerUsername(comment.ownerUsername, resolvedUsername);
@@ -349,13 +501,14 @@ export async function scanCommentsOnCandidatePosts(input: {
         }
     }
 
-    await page.close();
-    await browser.close();
+    await page?.close();
+    await browser?.close();
 
     return {
         browserAvailable: true,
         scannedPosts,
         visibleCommentsScanned,
+        structuredCommentsScanned,
         partialFailures,
         warnings: ambiguousCandidates.length > 0
             ? [

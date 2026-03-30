@@ -109,9 +109,11 @@ export function parseInstagramPostMetadataFromHtml(input: { url: string; html: s
     const caption = description?.includes(':')
         ? description.split(/:\s*/).slice(1).join(': ').trim().replace(/^"|"\.?\s*$/g, '')
         : null;
+    const mediaId = html.match(/instagram:\/\/media\?id=(\d+)/)?.[1] ?? null;
 
     return {
         id: `search:${shortcodeMatch[1]}`,
+        mediaId,
         shortcode: shortcodeMatch[1],
         url: normalizedUrl,
         ownerUsername,

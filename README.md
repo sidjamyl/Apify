@@ -71,6 +71,8 @@ It can combine:
 - external public web search for Instagram post URLs
 - bounded expansion around public owners discovered from those hits
 
+When fetching comments from a post, the Actor now prefers structured API retrieval when that surface is publicly accessible. Browser DOM extraction remains a fallback for posts where structured retrieval is unavailable.
+
 This is necessary because Instagram does not provide a reliable public search surface for “all comments by this username”.
 
 ## Coverage, Confidence, and Honesty
