@@ -2,7 +2,7 @@ import { setTimeout } from 'node:timers/promises';
 
 import { Actor, log } from 'apify';
 
-import { buildCandidateDiscoveryPlan } from './candidate-discovery.js';
+import { buildCandidateDiscoveryPlan, expandPublicProfiles } from './candidate-discovery.js';
 import { scanCommentsOnCandidatePosts } from './comment-scraper.js';
 import {
     computeConfidenceLevel,
@@ -360,6 +360,49 @@ async function run(): Promise<void> {
         candidatePosts: discoveryPlan.candidatePosts,
         resolvedUsername: searchUsername,
     });
+    const confirmedCommentOwners = [...new Set(
+        commentScanResult.events
+            .map((event) => event.postOwnerUsername)
+            .filter((ownerUsername) => ownerUsername && ownerUsername !== searchUsername),
+    )];
+
+    let ownerExpansionWarnings: string[] = [];
+    let ownerExpansionProfiles = 0;
+    let ownerExpansionPosts = 0;
+
+    if (confirmedCommentOwners.length > 0) {
+        const expandedCommentOwnerProfiles = await expandPublicProfiles({
+            profileUsernames: confirmedCommentOwners,
+            searchUsername,
+            discoverySource: 'expanded_owner_graph',
+        });
+
+        ownerExpansionWarnings = expandedCommentOwnerProfiles.warnings;
+        ownerExpansionProfiles = expandedCommentOwnerProfiles.expandedOwnerProfiles;
+
+        const extraCandidatePosts = expandedCommentOwnerProfiles.expandedPosts.filter((post) => {
+            return !discoveryPlan.candidatePosts.some((existingPost) => existingPost.shortcode === post.shortcode);
+        });
+        ownerExpansionPosts = extraCandidatePosts.length;
+
+        if (extraCandidatePosts.length > 0) {
+            log.info(`Confirmed-comment owner expansion added ${extraCandidatePosts.length} new candidate posts.`);
+            const extraCommentScanResult = await scanCommentsOnCandidatePosts({
+                candidatePosts: extraCandidatePosts,
+                resolvedUsername: searchUsername,
+            });
+
+            commentScanResult.scannedPosts += extraCommentScanResult.scannedPosts;
+            commentScanResult.visibleCommentsScanned += extraCommentScanResult.visibleCommentsScanned;
+            commentScanResult.partialFailures += extraCommentScanResult.partialFailures;
+            commentScanResult.warnings.push(...extraCommentScanResult.warnings);
+            commentScanResult.events.push(...extraCommentScanResult.events);
+            commentScanResult.ambiguousCandidates.push(...extraCommentScanResult.ambiguousCandidates);
+
+            discoveryPlan.candidatePosts.push(...extraCandidatePosts);
+        }
+    }
+
     const likedContentScanResult = scanLikedContentAppearances({
         candidatePosts: discoveryPlan.candidatePosts,
         resolvedUsername: searchUsername,
@@ -570,7 +613,7 @@ async function run(): Promise<void> {
         return 'No attributable public liker usernames were confirmed for the resolved target in the scanned public surfaces.';
     })();
 
-    const warnings = [...targetResolution.warnings, ...discoveryPlan.warnings, ...commentScanResult.warnings];
+    const warnings = [...targetResolution.warnings, ...discoveryPlan.warnings, ...ownerExpansionWarnings, ...commentScanResult.warnings];
     const summary: RunSummary = {
         status,
         message: (() => {
@@ -631,8 +674,12 @@ async function run(): Promise<void> {
         discovery: {
             searchMode: discoveryPlan.searchMode,
             searchUsername: discoveryPlan.searchUsername,
-            counts: discoveryPlan.discoveryCounts,
-            warnings: discoveryPlan.warnings,
+            counts: {
+                ...discoveryPlan.discoveryCounts,
+                expandedOwnerProfiles: discoveryPlan.discoveryCounts.expandedOwnerProfiles + ownerExpansionProfiles,
+                expandedOwnerPosts: discoveryPlan.discoveryCounts.expandedOwnerPosts + ownerExpansionPosts,
+            },
+            warnings: [...discoveryPlan.warnings, ...ownerExpansionWarnings],
         },
         coverage: {
             level: coverageLevel,

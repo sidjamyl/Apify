@@ -14,10 +14,10 @@ const SEARCH_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
 };
 
-const MAX_EXTERNAL_SEARCH_QUERIES = 8;
-const MAX_EXTERNAL_SEARCH_HITS = 60;
-const MAX_EXPANDED_DISCOVERY_PROFILES = 20;
-const MAX_EXPANDED_PROFILE_POSTS = 12;
+const MAX_EXTERNAL_SEARCH_QUERIES = 10;
+const MAX_EXTERNAL_SEARCH_HITS = 100;
+const MAX_EXPANDED_DISCOVERY_PROFILES = 50;
+const MAX_EXPANDED_PROFILE_POSTS = 24;
 
 function buildSearchQueries(username: string): string[] {
     return dedupeByKey([
@@ -230,19 +230,23 @@ async function fetchPostCandidatesFromUrls(urls: string[], searchUsername: strin
     return { posts, warnings };
 }
 
-async function expandProfilesAroundSearchHits(posts: InstagramPost[], searchUsername: string): Promise<{ expandedPosts: InstagramPost[]; warnings: string[]; expandedOwnerProfiles: number; }> {
+export async function expandPublicProfiles(input: {
+    profileUsernames: string[];
+    searchUsername: string;
+    discoverySource: DiscoverySource;
+}): Promise<{ expandedPosts: InstagramPost[]; warnings: string[]; expandedOwnerProfiles: number; }> {
     const warnings: string[] = [];
     const expandedPosts: InstagramPost[] = [];
     let expandedOwnerProfiles = 0;
 
-    const profileUsernames = dedupeByKey(
-        posts
-            .flatMap((post) => [post.ownerUsername, ...post.mentionedUsernames])
-            .filter((username) => Boolean(username) && username !== searchUsername),
+    const { profileUsernames, searchUsername, discoverySource } = input;
+
+    const uniqueProfileUsernames = dedupeByKey(
+        profileUsernames.filter((username) => Boolean(username) && username !== searchUsername),
         (username) => username,
     ).slice(0, MAX_EXPANDED_DISCOVERY_PROFILES);
 
-    for (const profileUsername of profileUsernames) {
+    for (const profileUsername of uniqueProfileUsernames) {
         try {
             const ownerResolution = await resolveTargetProfile(profileUsername);
             if (ownerResolution.status !== 'resolved' || !ownerResolution.resolvedTarget) {
@@ -254,7 +258,7 @@ async function expandProfilesAroundSearchHits(posts: InstagramPost[], searchUser
             expandedPosts.push(
                 ...ownerResolution.resolvedTarget.posts.slice(0, MAX_EXPANDED_PROFILE_POSTS).map((post) => ({
                     ...post,
-                    discoverySource: 'expanded_owner_graph' as const,
+                    discoverySource,
                     discoveredViaUsername: profileUsername,
                 })),
             );
@@ -269,6 +273,14 @@ async function expandProfilesAroundSearchHits(posts: InstagramPost[], searchUser
         warnings,
         expandedOwnerProfiles,
     };
+}
+
+async function expandProfilesAroundSearchHits(posts: InstagramPost[], searchUsername: string): Promise<{ expandedPosts: InstagramPost[]; warnings: string[]; expandedOwnerProfiles: number; }> {
+    return expandPublicProfiles({
+        profileUsernames: posts.flatMap((post) => [post.ownerUsername, ...post.mentionedUsernames]),
+        searchUsername,
+        discoverySource: 'expanded_owner_graph',
+    });
 }
 
 export async function buildCandidateDiscoveryPlan(input: {
