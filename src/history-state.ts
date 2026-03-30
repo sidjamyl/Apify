@@ -10,7 +10,7 @@ import type {
     TargetHistoryState,
 } from './types.js';
 
-export const TARGET_HISTORY_STORE_NAME = 'TARGET_HISTORY';
+export const TARGET_HISTORY_STORE_NAME = 'target-history';
 const TARGET_STATE_KEY_PREFIX = 'TARGET_STATE__';
 
 export function buildTargetHistoryStateKey(input: {

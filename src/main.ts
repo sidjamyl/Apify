@@ -695,6 +695,7 @@ async function run(): Promise<void> {
         warnings: [...warnings, ...likedContentScanResult.warnings, ...mentionTaggedScanResult.warnings, ...historyMergeResult.warnings],
     };
 
+    log.info('Persisting RUN_SUMMARY.');
     await Actor.setValue('RUN_SUMMARY', summary);
     log.info('RUN_SUMMARY persisted successfully.');
     log.info(summary.message);

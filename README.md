@@ -139,7 +139,7 @@ This is a public beta product and should be presented that way:
 
 ## Persistence
 
-Repeated lookup state is stored in `TARGET_HISTORY`.
+Repeated lookup state is stored in `target-history`.
 
 The Actor may persist history either by:
 
