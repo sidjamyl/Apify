@@ -12,11 +12,12 @@ import {
 } from '../src/comment-utils.js';
 import { scanCommentsOnCandidatePosts } from '../src/comment-scraper.js';
 import {
+    buildSearchQueries,
     parseInstagramPostMetadataFromHtml,
     parseInstagramPostUrlsFromDuckDuckGo,
 } from '../src/candidate-discovery.js';
+import { buildTargetHistoryStateKey } from '../src/history-state.js';
 import {
-    buildTargetHistoryStateKey,
     mergeHistoricalObservations,
 } from '../src/history-state.js';
 import { normalizeUsername, parseInput } from '../src/input.js';
@@ -223,6 +224,13 @@ describe('candidate discovery parsing', () => {
 
         expect(result?.ownerUsername).toBe('paleblood0');
         expect(result?.mentionedUsernames).toEqual(['marlboroswitch']);
+    });
+
+    it('builds broader search query variants', () => {
+        const queries = buildSearchQueries('nasa');
+        expect(queries.length).toBe(8);
+        expect(queries.some((query) => query.includes('instagram comment'))).toBe(true);
+        expect(queries.some((query) => query.includes('@nasa'))).toBe(true);
     });
 });
 

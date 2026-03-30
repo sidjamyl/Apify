@@ -19,7 +19,7 @@ const MAX_EXTERNAL_SEARCH_HITS = 100;
 const MAX_EXPANDED_DISCOVERY_PROFILES = 50;
 const MAX_EXPANDED_PROFILE_POSTS = 24;
 
-function buildSearchQueries(username: string): string[] {
+export function buildSearchQueries(username: string): string[] {
     return dedupeByKey([
         `site:instagram.com/p/ "${username}"`,
         `site:instagram.com/reel/ "${username}"`,
@@ -287,8 +287,16 @@ export async function buildCandidateDiscoveryPlan(input: {
     resolvedTarget: ResolvedTarget | null;
     inputUsername: string;
     searchMode: SearchMode;
+    cachedCandidatePosts?: InstagramPost[];
+    cachedFruitfulOwnerUsernames?: string[];
 }): Promise<DiscoveryPlan> {
-    const { resolvedTarget, inputUsername, searchMode } = input;
+    const {
+        resolvedTarget,
+        inputUsername,
+        searchMode,
+        cachedCandidatePosts = [],
+        cachedFruitfulOwnerUsernames = [],
+    } = input;
 
     const basePlan = searchMode === 'canonical' && resolvedTarget
         ? await buildDiscoveryPlan(resolvedTarget)
@@ -298,12 +306,19 @@ export async function buildCandidateDiscoveryPlan(input: {
     const externalSearchHits = await fetchExternalSearchHits(searchUsername);
     const externalSearchCandidates = await fetchPostCandidatesFromUrls(externalSearchHits.urls, searchUsername);
     const ownerExpansion = await expandProfilesAroundSearchHits(externalSearchCandidates.posts, searchUsername);
+    const cachedOwnerExpansion = await expandPublicProfiles({
+        profileUsernames: cachedFruitfulOwnerUsernames,
+        searchUsername,
+        discoverySource: 'expanded_owner_graph',
+    });
 
     const candidatePosts = dedupeByKey(
         [
             ...basePlan.candidatePosts,
+            ...cachedCandidatePosts,
             ...externalSearchCandidates.posts,
             ...ownerExpansion.expandedPosts,
+            ...cachedOwnerExpansion.expandedPosts,
         ],
         (post) => post.shortcode,
     );
@@ -313,20 +328,24 @@ export async function buildCandidateDiscoveryPlan(input: {
         candidatePosts,
         warnings: [
             ...basePlan.warnings,
+            ...(cachedCandidatePosts.length > 0 ? [`Loaded ${cachedCandidatePosts.length} cached candidate posts for @${searchUsername}.`] : []),
             ...externalSearchHits.warnings,
             ...externalSearchCandidates.warnings,
             ...ownerExpansion.warnings,
+            ...cachedOwnerExpansion.warnings,
         ],
         searchMode,
         searchUsername,
         discoveryCounts: {
             targetProfilePosts: basePlan.discoveryCounts.targetProfilePosts,
             relatedProfilePosts: basePlan.discoveryCounts.relatedProfilePosts,
+            cachedCandidatePosts: cachedCandidatePosts.length,
+            cachedFruitfulOwnerProfiles: cachedOwnerExpansion.expandedOwnerProfiles,
             externalSearchQueries: externalSearchHits.queryCount,
             externalSearchHits: externalSearchHits.hitCount,
             externalSearchCandidatePosts: externalSearchCandidates.posts.length,
-            expandedOwnerProfiles: ownerExpansion.expandedOwnerProfiles,
-            expandedOwnerPosts: ownerExpansion.expandedPosts.length,
+            expandedOwnerProfiles: ownerExpansion.expandedOwnerProfiles + cachedOwnerExpansion.expandedOwnerProfiles,
+            expandedOwnerPosts: ownerExpansion.expandedPosts.length + cachedOwnerExpansion.expandedPosts.length,
         },
     };
 

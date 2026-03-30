@@ -201,6 +201,8 @@ export interface RunSummary {
         counts: {
             targetProfilePosts: number;
             relatedProfilePosts: number;
+            cachedCandidatePosts: number;
+            cachedFruitfulOwnerProfiles: number;
             externalSearchQueries: number;
             externalSearchHits: number;
             externalSearchCandidatePosts: number;
@@ -332,4 +334,12 @@ export interface HistoryMergeResult {
     nextState: TargetHistoryState;
     historySummary: RunSummary['history'];
     warnings: string[];
+}
+
+export interface TargetCandidateCacheState {
+    version: 1;
+    targetUsername: string;
+    updatedAt: string;
+    candidateShortcodes: string[];
+    fruitfulOwnerUsernames: string[];
 }

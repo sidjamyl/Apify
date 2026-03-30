@@ -2,6 +2,12 @@ import { setTimeout } from 'node:timers/promises';
 
 import { Actor, log } from 'apify';
 
+import {
+    loadCachedCandidatePosts,
+    loadTargetCandidateCache,
+    openCandidateDiscoveryCacheStore,
+    persistCandidateDiscoveryCache,
+} from './candidate-cache.js';
 import { buildCandidateDiscoveryPlan, expandPublicProfiles } from './candidate-discovery.js';
 import { scanCommentsOnCandidatePosts } from './comment-scraper.js';
 import {
@@ -83,6 +89,8 @@ function buildNoScanSummary(input: {
             counts: {
                 targetProfilePosts: 0,
                 relatedProfilePosts: 0,
+                cachedCandidatePosts: 0,
+                cachedFruitfulOwnerProfiles: 0,
                 externalSearchQueries: 0,
                 externalSearchHits: 0,
                 externalSearchCandidatePosts: 0,
@@ -348,10 +356,22 @@ async function run(): Promise<void> {
         historyIdentityValue = input.username;
     }
 
+    const candidateCacheStore = await openCandidateDiscoveryCacheStore();
+    const targetCandidateCache = await loadTargetCandidateCache({
+        store: candidateCacheStore,
+        targetUsername: searchUsername,
+    });
+    const cachedCandidatePosts = await loadCachedCandidatePosts({
+        store: candidateCacheStore,
+        shortcodes: targetCandidateCache?.candidateShortcodes ?? [],
+    });
+
     const discoveryPlan = await buildCandidateDiscoveryPlan({
         resolvedTarget,
         inputUsername: input.username,
         searchMode,
+        cachedCandidatePosts,
+        cachedFruitfulOwnerUsernames: targetCandidateCache?.fruitfulOwnerUsernames ?? [],
     });
     searchUsername = discoveryPlan.searchUsername;
     log.info(`Candidate discovery finished with ${discoveryPlan.candidatePosts.length} candidate posts.`);
@@ -402,6 +422,14 @@ async function run(): Promise<void> {
             discoveryPlan.candidatePosts.push(...extraCandidatePosts);
         }
     }
+
+    await persistCandidateDiscoveryCache({
+        store: candidateCacheStore,
+        targetUsername: searchUsername,
+        candidatePosts: discoveryPlan.candidatePosts,
+        fruitfulOwnerUsernames: confirmedCommentOwners,
+        previousState: targetCandidateCache,
+    });
 
     const likedContentScanResult = scanLikedContentAppearances({
         candidatePosts: discoveryPlan.candidatePosts,
