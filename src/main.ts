@@ -65,6 +65,18 @@ function buildNoScanSummary(input: {
             isAvailable,
             isPrivate,
         },
+        comments: {
+            resultState: 'no_comments_found',
+            ambiguousRecordKey: null,
+            counts: {
+                candidatePosts: 0,
+                scannedPosts: 0,
+                visibleCommentsScanned: 0,
+                confirmedComments: 0,
+                confirmedReplies: 0,
+                ambiguousCandidates: 0,
+            },
+        },
         discovery: {
             searchMode: 'canonical',
             searchUsername: inputUsername,
@@ -383,6 +395,14 @@ async function run(): Promise<void> {
         taggedAppearanceEvents,
         partialFailures: mentionTaggedScanResult.partialFailures,
     });
+    const commentResultState = commentScanResult.events.length > 0 ? 'comments_found' : 'no_comments_found';
+    const ambiguousCommentRecordKey = commentScanResult.ambiguousCandidates.length > 0
+        ? 'AMBIGUOUS_COMMENT_CANDIDATES'
+        : null;
+
+    if (commentScanResult.ambiguousCandidates.length > 0) {
+        await Actor.setValue('AMBIGUOUS_COMMENT_CANDIDATES', commentScanResult.ambiguousCandidates);
+    }
     const historyMergeResult = historyEnabled && resolvedTarget && targetId && targetProfileUrl
         ? (() => {
             const now = new Date().toISOString();
@@ -528,28 +548,38 @@ async function run(): Promise<void> {
         status,
         message: (() => {
             if (discoveryPlan.searchMode === 'degraded') {
+                if (commentScanResult.events.length > 0) {
+                    return `Canonical target resolution for @${input.username} was unavailable, but the Actor continued in degraded mode and found ${commentScanResult.events.length} confirmed public comments or replies.`;
+                }
+
                 return currentEvents.length > 0
-                    ? `Canonical target resolution for @${input.username} was unavailable, but the Actor continued in degraded mode and found ${currentEvents.length} current public activity events.`
-                    : `Canonical target resolution for @${input.username} was unavailable. The Actor continued in degraded mode, but found no public activity events in the current discovery scope.`;
+                    ? `Canonical target resolution for @${input.username} was unavailable. The Actor found no confirmed public comments in the current discovery scope, but it did return ${currentEvents.length} supporting activity events from secondary surfaces.`
+                    : `Canonical target resolution for @${input.username} was unavailable. The Actor continued in degraded mode, but found no confirmed public comments in the current discovery scope.`;
             }
 
             if (status === 'resolved_with_results') {
+                if (commentScanResult.events.length > 0) {
+                    return targetIsPrivate
+                        ? `Resolved private target @${searchUsername} and found ${commentScanResult.events.length} confirmed public comments or replies.`
+                        : `Resolved @${searchUsername} and found ${commentScanResult.events.length} confirmed public comments or replies.`;
+                }
+
                 return targetIsPrivate
-                    ? `Resolved private target @${searchUsername} and found ${currentEvents.length} current public activity events across comments, liked content, mentions, and tagged appearances.`
-                    : `Resolved @${searchUsername} and found ${currentEvents.length} current public activity events across comments, liked content, mentions, and tagged appearances.`;
+                    ? `Resolved private target @${searchUsername}. The Actor found no confirmed public comments in the inspected discovery scope, but it did return ${currentEvents.length} supporting activity events from secondary surfaces.`
+                    : `Resolved @${searchUsername}. The Actor found no confirmed public comments in the inspected discovery scope, but it did return ${currentEvents.length} supporting activity events from secondary surfaces.`;
             }
 
             if (status === 'resolved_no_results') {
                 if (historyMergeResult.historySummary.historicalTombstones > 0 || historyMergeResult.historySummary.historicalUnconfirmed > 0) {
-                    return `Resolved @${searchUsername}, found no current public activity events, and returned ${historyMergeResult.historySummary.historicalTombstones + historyMergeResult.historySummary.historicalUnconfirmed} historical observations from prior runs.`;
+                    return `Resolved @${searchUsername}, found no confirmed public comments in the current discovery scope, and returned ${historyMergeResult.historySummary.historicalTombstones + historyMergeResult.historySummary.historicalUnconfirmed} historical observations from prior runs.`;
                 }
 
                 return targetIsPrivate
-                    ? `Resolved private target @${searchUsername}. The Actor continued in public comment hunting mode, but found no public comments, liked-content signals, mentions, or tagged appearances in the inspected discovery scope.`
-                    : `Resolved @${searchUsername}, but found no public comments, liked-content signals, mentions, or tagged appearances in the inspected discovery scope.`;
+                    ? `Resolved private target @${searchUsername}. The Actor continued in public comment hunting mode, but found no confirmed public comments in the inspected discovery scope.`
+                    : `Resolved @${searchUsername}, but found no confirmed public comments in the inspected discovery scope.`;
             }
 
-            return `Resolved @${searchUsername}, but comment discovery completed with partial coverage.`;
+            return `Resolved @${searchUsername}, but confirmed public comment discovery completed with partial coverage.`;
         })(),
         resultState,
         target: {
@@ -558,6 +588,18 @@ async function run(): Promise<void> {
             profileUrl: targetProfileUrl,
             isAvailable: targetIsAvailable,
             isPrivate: targetIsPrivate,
+        },
+        comments: {
+            resultState: commentResultState,
+            ambiguousRecordKey: ambiguousCommentRecordKey,
+            counts: {
+                candidatePosts: discoveryPlan.candidatePosts.length,
+                scannedPosts: commentScanResult.scannedPosts,
+                visibleCommentsScanned: commentScanResult.visibleCommentsScanned,
+                confirmedComments: commentScanResult.events.length,
+                confirmedReplies: matchedReplies,
+                ambiguousCandidates: commentScanResult.ambiguousCandidates.length,
+            },
         },
         discovery: {
             searchMode: discoveryPlan.searchMode,

@@ -7,6 +7,12 @@
 			"description": "User-facing run summary for the latest lookup, including per-surface coverage, confidence, historical observation counts, and warnings.",
 			"key": "RUN_SUMMARY",
 			"contentTypes": ["application/json"]
+		},
+		"ambiguousCommentCandidates": {
+			"title": "Ambiguous comment candidates",
+			"description": "Comment-like username matches that were kept separate from confirmed comment results.",
+			"key": "AMBIGUOUS_COMMENT_CANDIDATES",
+			"contentTypes": ["application/json"]
 		}
 	}
 }

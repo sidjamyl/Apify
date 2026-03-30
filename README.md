@@ -59,6 +59,11 @@ Within that discovery scope, the Actor:
 
 The Actor returns a `RUN_SUMMARY` record in the default key-value store.
 
+Confirmed comments and ambiguous near-matches are separated:
+
+- confirmed comments and replies are returned in the dataset
+- ambiguous near-matches are stored separately in `AMBIGUOUS_COMMENT_CANDIDATES`
+
 It includes:
 
 - overall run status

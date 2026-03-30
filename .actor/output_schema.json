@@ -11,6 +11,11 @@
 			"type": "string",
 			"title": "Run summary and coverage",
 			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/RUN_SUMMARY"
+		},
+		"ambiguousCommentCandidates": {
+			"type": "string",
+			"title": "Ambiguous comment candidates",
+			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/AMBIGUOUS_COMMENT_CANDIDATES"
 		}
 	}
 }

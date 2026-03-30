@@ -182,6 +182,18 @@ export interface RunSummary {
     message: string;
     resultState: 'results_found' | 'nothing_found';
     target: TargetSnapshot;
+    comments: {
+        resultState: 'comments_found' | 'no_comments_found';
+        ambiguousRecordKey: string | null;
+        counts: {
+            candidatePosts: number;
+            scannedPosts: number;
+            visibleCommentsScanned: number;
+            confirmedComments: number;
+            confirmedReplies: number;
+            ambiguousCandidates: number;
+        };
+    };
     discovery: {
         searchMode: SearchMode;
         searchUsername: string;
