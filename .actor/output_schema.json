@@ -1,15 +1,15 @@
 {
 	"actorOutputSchemaVersion": 1,
-	"title": "Instagram Public Comment Hunter Output",
+	"title": "Instagram Public Comment Hunter (High-Recall Beta) Output",
 	"properties": {
 		"activityEvents": {
 			"type": "string",
-			"title": "Comments-first activity dataset",
+			"title": "Comments-first high-recall dataset",
 			"template": "{{links.apiDefaultDatasetUrl}}/items"
 		},
 		"runSummary": {
 			"type": "string",
-			"title": "Comment-hunt run summary",
+			"title": "Comment-hunt run summary and operation state",
 			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/RUN_SUMMARY"
 		},
 		"ambiguousCommentCandidates": {

@@ -1,12 +1,12 @@
 {
-	"title": "Instagram Public Comment Hunter Input",
+	"title": "Instagram Public Comment Hunter (High-Recall Beta) Input",
 	"type": "object",
 	"schemaVersion": 1,
 	"properties": {
 		"username": {
 			"title": "Target username",
 			"type": "string",
-			"description": "Instagram username to investigate. No Instagram login is required in the default public beta flow. The Actor accepts plain usernames with or without a leading @ and searches for best-effort public comment traces, including traces left by private accounts on public posts when discoverable.",
+			"description": "Instagram username to investigate. The Actor is comments-first and aims for high recall on public comment traces, including traces left by private accounts on public posts when discoverable. No end-user login is required in the public flow, but real high-recall operation depends on stronger discovery, longer runs, and anti-blocking support behind the scenes.",
 			"pattern": "^@?[A-Za-z0-9._]+$",
 			"editor": "textfield",
 			"prefill": "nasa"
@@ -14,7 +14,7 @@
 		"runMode": {
 			"title": "Run mode",
 			"type": "string",
-			"description": "Backfill runs spend more cycles trying to widen recall. Freshness runs are lighter and prioritize repeated updates using existing memory.",
+			"description": "Backfill runs are longer and try to widen recall as much as possible. Freshness runs are lighter and prioritize repeated updates using existing discovery memory.",
 			"enum": ["backfill", "freshness"],
 			"enumTitles": ["Backfill", "Freshness"],
 			"default": "backfill"
@@ -22,7 +22,7 @@
 		"maxDiscoveryCycles": {
 			"title": "Max discovery cycles",
 			"type": "integer",
-			"description": "How many internal discovery/scan cycles the Actor should try within a run before stopping. Higher values favor deeper recall at the cost of runtime.",
+			"description": "How many internal discovery/scan cycles the Actor should attempt before stopping. Higher values favor deeper recall, longer runtime, and higher discovery effort.",
 			"default": 5,
 			"minimum": 1
 		}

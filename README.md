@@ -1,35 +1,39 @@
-# Instagram Public Comment Hunter (Beta)
+# Instagram Public Comment Hunter (High-Recall Beta)
 
-Best-effort Apify Actor for finding publicly visible Instagram comments by username.
+Comments-first Apify Actor for finding as many publicly visible Instagram comments as possible for a username.
 
-This Actor is packaged as a **public beta** and is intentionally comments-first:
+This product is intentionally positioned as a **high-recall public beta**:
 
-- confirmed public comments and visible replies are the main product value
-- likes remain experimental and weaker than comments
-- mentions and tagged appearances remain supporting signals
-
-The product is designed for public research use cases such as due diligence, moderation research, creator vetting, and brand-safety review.
+- comments and replies are the main value
+- runs can be longer and more aggressive than a lightweight scraper
+- discovery is cumulative across runs
+- supporting likes, mentions, and tagged appearances remain secondary
 
 ## Main Promise
 
-Start from a single Instagram username and search for publicly visible comments attributable to that username.
+Start from a username and search for publicly visible Instagram comments attributable to that username.
+
+The Actor is designed to keep improving over time:
+
+- it reuses prior discovery memory
+- it rescans productive areas of the public graph
+- it supports repeated runs instead of treating every run as a fresh one-off lookup
 
 This includes best-effort support for **public traces left by private accounts on public posts** when those traces are discoverable.
 
 ## Input
 
-- one Instagram username
-- no Instagram login required in the standard public flow
-- optional `runMode`:
-  - `backfill` for deeper multi-cycle discovery
-  - `freshness` for lighter repeated update runs
-- optional `maxDiscoveryCycles` to control how many internal discovery/scan cycles the Actor tries in a single run
+- `username`
+- optional `runMode`
+  - `backfill`: deeper multi-cycle discovery
+  - `freshness`: lighter repeated update mode
+- optional `maxDiscoveryCycles`
 
-The Actor accepts usernames with or without a leading `@`.
+No Instagram login is required from the end user in the public flow.
 
 ## Main Output
 
-The main dataset is a comments-first activity stream.
+The main dataset remains comments-first.
 
 Current event types:
 
@@ -38,132 +42,136 @@ Current event types:
 - `mention`
 - `tagged_appearance`
 
-But the product contract is not “all activity equally.”
-
-The intended reading order is:
+The intended reading order remains:
 1. confirmed comments and replies
 2. ambiguous comment candidates
 3. supporting surfaces
 
 ## Confirmed vs Ambiguous Comments
 
-Confirmed comments and replies are returned in the default dataset.
+Confirmed comments and replies are returned in the dataset.
 
-Ambiguous near-matches are kept separate in:
+Ambiguous near-matches are separated into:
 
 - `AMBIGUOUS_COMMENT_CANDIDATES`
 
-This separation is deliberate. The Actor does not silently mix probable username matches into confirmed comment results.
+The Actor does not silently merge probable username matches into confirmed results.
 
-## Observation States
+## High-Recall Operation
 
-Each dataset item includes `observationState`:
+This Actor is no longer just a single-pass scraper.
 
-- `visible`
-- `historical_tombstone`
-- `historical_unconfirmed`
+It now supports:
 
-Historical output is metadata-focused. When an item is no longer currently visible, the Actor does not republish old text content in full.
+- repeated discovery memory reuse
+- frontier-style prioritization of productive owners and graph regions
+- multi-cycle runs inside one execution
+- distinct operating modes for backfill vs freshness
 
-## How Discovery Works
+The `RUN_SUMMARY` includes an `operation` section that explains:
 
-The Actor uses a broad but bounded discovery strategy.
+- which run mode was used
+- how many discovery cycles were attempted
+- how many cycles completed
+- why the run stopped
+
+## Discovery Model
+
+The Actor uses a broad but still bounded public discovery model.
 
 It can combine:
 
 - public Instagram profile-derived discovery
 - external public web search for Instagram post URLs
-- bounded expansion around public owners discovered from those hits
-- frontier-style prioritization that reuses productive owners and candidate posts from prior runs
+- cached candidate posts from previous runs
+- cached productive owners from previous runs
+- frontier-style prioritization driven by historical yield
 
-When fetching comments from a post, the Actor now prefers structured API retrieval when that surface is publicly accessible. Browser DOM extraction remains a fallback for posts where structured retrieval is unavailable.
+This is necessary because Instagram does not provide a reliable public API for “all comments by this username”.
 
-This is necessary because Instagram does not provide a reliable public search surface for “all comments by this username”.
+## Comment Fetching Model
+
+The Actor prefers structured comment retrieval when that path is publicly accessible.
+
+When structured retrieval is unavailable or blocked, it falls back to browser DOM extraction.
+
+This means the Actor is **JSON/GraphQL-first in architecture**, but still keeps a browser fallback because many logged-out public comment surfaces are inconsistent.
 
 ## Coverage, Confidence, and Honesty
 
-The Actor returns a `RUN_SUMMARY` record in the default key-value store.
-
-It explains:
+The Actor writes a `RUN_SUMMARY` record that explains:
 
 - target resolution status
-- comment-hunt result state
+- operation mode and cycle behavior
 - discovery breadth and warnings
-- discovery memory reuse such as cached candidate posts
-- comments coverage and confidence
-- liked-content coverage and confidence
-- mention/tagged coverage
-- historical observation reuse and tombstone counts
-
-This matters because an empty result can mean very different things:
-
-- no confirmed comments were found in the inspected scope
-- discovery breadth was weak
-- external search was blocked or sparse
-- canonical resolution was temporarily unavailable
+- cache/frontier reuse
+- comment coverage and confidence
+- supporting-surface coverage
+- historical observation reuse and tombstones
 
 The Actor does **not** present “no confirmed comments found” as proof that the target has never commented publicly.
 
-## Important Limitations
+## Important Limits
 
-- This Actor is best-effort, not exhaustive.
-- It does not guarantee recovery of all public comments by a username.
+- This Actor is high-recall, but still **non-exhaustive**.
+- It does not guarantee recovery of all public comments a user has ever made.
 - Instagram public surfaces change often and may expose only partial data.
 - Private accounts can still leave public traces on public posts, but recovery depends on those traces being discoverable.
-- Replies are included only when Instagram exposes them publicly.
-- Liked-content recovery is experimental and depends on attributable public liker usernames being exposed. In many runs, that signal may not exist at all.
-- Sparse or missing liked-content output does not prove the target never liked anything.
-- Missing activity only becomes meaningful when the relevant branch had enough coverage to support that interpretation.
+- Structured comment fetching is not uniformly available when logged out.
+- Likes remain weaker and more experimental than comments.
+- Strong recall may require longer runtime and stronger anti-blocking support behind the scenes.
+- Missing activity is only meaningful when the relevant branch had enough coverage to support that interpretation.
+
+## Anti-Blocking Reality
+
+This product is designed under the assumption that stronger anti-blocking support matters in real high-recall operation.
+
+In practical terms, that means:
+
+- proxies may materially improve reliability
+- persistent sessions may materially improve reliability
+- repeated runs are part of the recall strategy, not just an operational detail
+
+The public Store contract should therefore be read as a high-effort beta search product, not as a guaranteed comment archive.
 
 ## Out of Scope
 
 - non-public Instagram data
 - DMs, Close Friends, and private messaging surfaces
-- mandatory end-user Instagram login in the public flow
-- guaranteed full recovery of all public comments
-- guaranteed full reconstruction of a user’s likes
-- Stories as a required surface
+- guaranteed complete lifetime recovery of all public comments
+- guaranteed full like reconstruction
+- treating likes, mentions, or tagged appearances as equal to comments in the public promise
 
 ## Pricing Guidance
 
-This Actor should be priced according to **discovery effort**, not only returned result volume.
+This Actor should be priced by **discovery effort**, not only by result count.
 
 Why:
 
-- some runs consume real search and inspection work even when confirmed results are sparse
+- long runs can consume meaningful discovery effort even when confirmed results are sparse
+- repeated runs improve recall through persistent memory reuse
 - comments, likes, and supporting surfaces do not have equal recoverability
-- a low result count can still reflect meaningful bounded discovery work
 
-The Store contract should therefore avoid implying that users only pay for matched event volume.
+The pricing contract should therefore avoid implying that value is determined only by the number of returned events.
 
 ## Public Beta Positioning
 
-This is a public beta product and should be presented that way:
+This is a public beta and should be presented as such:
 
-- conservative on promises
+- comments-first
+- cumulative and long-running
 - explicit about uncertainty
-- explicit about comments-first hierarchy
-- explicit about branch-specific limitations
+- explicit about non-guarantees
+- explicit about operating assumptions for real high recall
 
 ## Persistence
 
-Repeated lookup state is stored in `target-history`.
+Repeated lookup state is stored in:
 
-Candidate discovery memory is also stored separately in `candidate-discovery-cache`.
+- `target-history`
+- `candidate-discovery-cache`
 
-This cache can keep:
-
-- previously found candidate posts for a username
-- productive owners that are worth rescanning later
-
-The Actor may persist history either by:
-
-- canonical target identity
-- provisional input-username identity
-
-If canonical resolution is unavailable, history may be keyed provisionally by username. In that case, historical interpretation should remain cautious until canonical resolution succeeds in a future run.
-
-This means repeated runs do not depend only on fresh search-engine results. They can reuse older discovery memory and continue from earlier findings.
+This persistence is a core part of the product value because the Actor improves through repeated runs.
 
 ## Local Development
 
@@ -177,7 +185,9 @@ Example input:
 
 ```json
 {
-  "username": "nasa"
+  "username": "nasa",
+  "runMode": "backfill",
+  "maxDiscoveryCycles": 5
 }
 ```
 

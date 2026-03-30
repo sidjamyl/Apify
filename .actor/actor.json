@@ -2,8 +2,8 @@
 	"$schema": "https://apify.com/schemas/v1/actor.ide.json",
 	"actorSpecification": 1,
 	"name": "instagram-public-comment-discovery",
-	"title": "Instagram Public Comment Hunter (Beta)",
-	"description": "Comments-first, best-effort public Instagram comment discovery by username, including public traces from private accounts on public posts. Secondary likes, mention, and tagged signals remain experimental/supporting.",
+	"title": "Instagram Public Comment Hunter (High-Recall Beta)",
+	"description": "Comments-first, cumulative public Instagram comment discovery by username. Designed for high-recall backfill and repeated freshness runs, with supporting likes/mention/tagged signals and explicit non-exhaustive limits.",
 	"version": "0.1",
 	"buildTag": "latest",
 	"meta": {
