@@ -26,6 +26,7 @@ import { buildDegradedDiscoveryPlan } from '../src/instagram-profile.js';
 import { scanLikedContentAppearances } from '../src/liked-content-scan.js';
 import { scanMentionTaggedAppearances } from '../src/mention-tagged-scan.js';
 import {
+    inferAuthenticatedSessionFromPageSignals,
     parseUsernamesFromDialogAnchors,
     sessionStateContainsInstagramLogin,
 } from '../src/operator-resources.js';
@@ -636,6 +637,19 @@ describe('operator resource helpers', () => {
             }],
             origins: [],
         })).toBe(true);
+    });
+
+    it('accepts session pages that expose logged_in markers without the old nav selectors', () => {
+        expect(inferAuthenticatedSessionFromPageSignals({
+            pageUrl: 'https://www.instagram.com/accounts/edit/',
+            bodyText: 'Instagram settings page',
+            html: '<script>"logged_in"</script>',
+            loginFieldVisible: false,
+            challengePage: false,
+        })).toEqual({
+            isAuthenticated: true,
+            reason: null,
+        });
     });
 });
 

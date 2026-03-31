@@ -50,6 +50,14 @@ interface SessionValidationResult {
     storageState: StorageState;
 }
 
+interface SessionPageSignals {
+    pageUrl: string;
+    bodyText: string;
+    html: string;
+    loginFieldVisible: boolean;
+    challengePage: boolean;
+}
+
 function buildOperatorSessionKey(account: Pick<OperatorAccountInput, 'username' | 'sessionKey'>): string {
     return `${SESSION_KEY_PREFIX}${account.sessionKey ?? account.username}`;
 }
@@ -155,6 +163,47 @@ async function persistOperatorDebugArtifacts(input: {
     return { htmlRecordKey, screenshotRecordKey };
 }
 
+export function inferAuthenticatedSessionFromPageSignals(input: SessionPageSignals): {
+    isAuthenticated: boolean;
+    reason: string | null;
+} {
+    const {
+        pageUrl,
+        bodyText,
+        html,
+        loginFieldVisible,
+        challengePage,
+    } = input;
+
+    const redirectedToLogin = pageUrl.includes('/accounts/login');
+    const accountsEditPage = pageUrl.includes('/accounts/edit/');
+    const loggedInHtmlMarker = html.includes('"logged_in"') || html.includes('logged_in');
+    const notificationMarker = html.includes('xdt_notification_badge') || html.includes('badge_count');
+    const settingsMarker = html.includes('/accounts/edit/') || html.includes('PolarisSettings');
+    const explicitLoginText = /log in|login/i.test(bodyText);
+
+    if (!loginFieldVisible && !redirectedToLogin && !challengePage && (accountsEditPage || loggedInHtmlMarker || notificationMarker || settingsMarker) && !explicitLoginText) {
+        return {
+            isAuthenticated: true,
+            reason: null,
+        };
+    }
+
+    let reason = 'Instagram did not expose the expected authenticated navigation after session injection.';
+    if (redirectedToLogin) {
+        reason = 'Instagram redirected the provided session to the login page.';
+    } else if (challengePage) {
+        reason = 'Instagram served a challenge or checkpoint page instead of an authenticated settings view.';
+    } else if (loginFieldVisible) {
+        reason = 'Instagram still rendered a login form after session injection.';
+    }
+
+    return {
+        isAuthenticated: false,
+        reason,
+    };
+}
+
 async function validateOperatorSession(input: {
     account: Pick<OperatorAccountInput, 'username'>;
     storageState: StorageState;
@@ -177,17 +226,20 @@ async function validateOperatorSession(input: {
 
         const pageUrl = page.url();
         const pageTitle = await page.title().catch(() => '');
+        const html = await page.content().catch(() => '');
         const bodyText = await page.locator('body').innerText().catch(() => '');
         const loginFieldVisible = await page.locator('input[name="username"]').count() > 0;
-        const redirectedToLogin = pageUrl.includes('/accounts/login');
         const challengePage = pageUrl.includes('/challenge/') || /challenge/i.test(bodyText);
-        const loggedInNavVisible = (await page.locator('a[href="/accounts/edit/"]').count() > 0)
-            || (await page.locator('a[href="/direct/inbox/"]').count() > 0)
-            || (await page.locator('nav').count() > 0 && !redirectedToLogin);
-        const isAuthenticated = !loginFieldVisible && !redirectedToLogin && !challengePage && loggedInNavVisible;
+        const validation = inferAuthenticatedSessionFromPageSignals({
+            pageUrl,
+            bodyText,
+            html,
+            loginFieldVisible,
+            challengePage,
+        });
         const nextStorageState = await context.storageState();
 
-        if (isAuthenticated) {
+        if (validation.isAuthenticated) {
             return {
                 isAuthenticated: true,
                 pageUrl,
@@ -205,22 +257,13 @@ async function validateOperatorSession(input: {
             page,
         });
 
-        let reason = 'Instagram did not expose the expected authenticated navigation after session injection.';
-        if (redirectedToLogin) {
-            reason = 'Instagram redirected the provided session to the login page.';
-        } else if (challengePage) {
-            reason = 'Instagram served a challenge or checkpoint page instead of an authenticated settings view.';
-        } else if (loginFieldVisible) {
-            reason = 'Instagram still rendered a login form after session injection.';
-        }
-
         return {
             isAuthenticated: false,
             pageUrl,
             pageTitle,
             debugHtmlRecordKey: artifacts.htmlRecordKey,
             debugScreenshotRecordKey: artifacts.screenshotRecordKey,
-            reason,
+            reason: validation.reason,
             storageState: nextStorageState,
         };
     } finally {
