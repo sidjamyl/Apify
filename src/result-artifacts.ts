@@ -11,6 +11,7 @@ import type {
 
 export const RESULT_BUCKETS_RECORD_KEY = 'RESULT_BUCKETS';
 export const AMBIGUOUS_ACTIVITY_RECORD_KEY = 'AMBIGUOUS_ACTIVITY_CANDIDATES';
+export const DIAGNOSTIC_TRACE_RECORD_KEY = 'DIAGNOSTIC_TRACE';
 
 export interface AmbiguousActivityRecord {
     generatedAt: string;

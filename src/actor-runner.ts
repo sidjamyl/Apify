@@ -35,10 +35,12 @@ import {
     AMBIGUOUS_ACTIVITY_RECORD_KEY,
     buildAmbiguousActivityRecord,
     buildResultBucketsRecord,
+    DIAGNOSTIC_TRACE_RECORD_KEY,
     RESULT_BUCKETS_RECORD_KEY,
 } from './result-artifacts.js';
 import {
     buildDeepInvestigationRuntimeStateKey,
+    buildDiagnosticTrace,
     buildRuntimeInfo,
     checkpointRuntimeJob,
     completeRuntimeJob,
@@ -171,6 +173,7 @@ function buildNoScanSummary(input: {
         artifacts: {
             resultBucketsRecordKey: RESULT_BUCKETS_RECORD_KEY,
             ambiguousActivityRecordKey: null,
+            diagnosticTraceRecordKey: DIAGNOSTIC_TRACE_RECORD_KEY,
         },
         coverage: {
             level: 'unknown',
@@ -398,6 +401,14 @@ function mergeKnownCandidatePosts(existingPosts: InstagramPost[], nextPosts: Ins
     return dedupeByKey([...existingPosts, ...nextPosts], (post) => post.shortcode);
 }
 
+function summarizePostSamples(posts: InstagramPost[]): { shortcode: string; ownerUsername: string; discoverySource: InstagramPost['discoverySource'] }[] {
+    return posts.slice(0, 5).map((post) => ({
+        shortcode: post.shortcode,
+        ownerUsername: post.ownerUsername,
+        discoverySource: post.discoverySource,
+    }));
+}
+
 async function hydrateRuntimeState(input: ReturnType<typeof parseInput>, runtimeStore: KeyValueStore): Promise<DeepInvestigationRuntimeState> {
     const stateKey = buildDeepInvestigationRuntimeStateKey({ username: input.username, runMode: input.runMode });
     const existingState = await loadDeepInvestigationRuntimeState({ store: runtimeStore, stateKey });
@@ -433,6 +444,18 @@ async function executeTargetResolutionJob(input: {
     state.target.targetResolutionWarnings = targetResolution.warnings;
 
     if (targetResolution.status === 'not_found') {
+        state.diagnostics.targetResolution = {
+            attemptedAt: new Date().toISOString(),
+            inputUsername: state.input.username,
+            status: targetResolution.status,
+            resolvedUsername: null,
+            searchMode: 'canonical',
+            isPrivate: false,
+            cachedCandidatePosts: 0,
+            historicalCandidatePosts: 0,
+            warningSample: targetResolution.warnings.slice(0, 10),
+        };
+        log.warning(`Target resolution for @${state.input.username}: profile not found on public Instagram surfaces.`);
         state.target.searchUsername = state.input.username;
         state.target.searchMode = 'canonical';
         state.progress.stoppedBecause = 'no_candidates';
@@ -455,6 +478,7 @@ async function executeTargetResolutionJob(input: {
         state.target.targetIsPrivate = false;
         state.target.historyIdentityMode = 'input_username';
         state.target.historyIdentityValue = state.input.username;
+        log.warning(`Target resolution for @${state.input.username}: canonical profile unavailable, continuing in degraded mode.`);
     } else {
         const canonicalTarget = targetResolution.resolvedTarget;
         if (!canonicalTarget) {
@@ -469,6 +493,7 @@ async function executeTargetResolutionJob(input: {
         state.target.targetIsPrivate = canonicalTarget.isPrivate;
         state.target.historyIdentityMode = 'canonical_target';
         state.target.historyIdentityValue = canonicalTarget.id;
+        log.info(`Target resolution for @${state.input.username}: resolved to @${canonicalTarget.username}${canonicalTarget.isPrivate ? ' (private)' : ''}.`);
     }
 
     const previousHistoryState = state.target.historyIdentityMode && state.target.historyIdentityValue
@@ -494,6 +519,19 @@ async function executeTargetResolutionJob(input: {
     state.target.targetCandidateCache = targetCandidateCache;
     state.progress.aggregatedDiscoveryCounts.cachedCandidatePosts = cachedCandidatePosts.length;
     state.progress.knownCandidatePosts = mergeKnownCandidatePosts(cachedCandidatePosts, state.target.historicalCandidatePosts);
+    state.diagnostics.targetResolution = {
+        attemptedAt: new Date().toISOString(),
+        inputUsername: state.input.username,
+        status: targetResolution.status,
+        resolvedUsername: state.target.resolvedTarget?.username ?? null,
+        searchMode: state.target.searchMode,
+        isPrivate: state.target.targetIsPrivate,
+        cachedCandidatePosts: cachedCandidatePosts.length,
+        historicalCandidatePosts: state.target.historicalCandidatePosts.length,
+        warningSample: targetResolution.warnings.slice(0, 10),
+    };
+
+    log.info(`Initialized target context for @${state.target.searchUsername}: historical candidates=${state.target.historicalCandidatePosts.length}, cached candidates=${cachedCandidatePosts.length}.`);
 
     enqueueRuntimeJob({
         state,
@@ -517,6 +555,12 @@ async function executeOperatorResourceBootstrapJob(input: {
     });
 
     state.operatorResources.summary = preparedResources.summary;
+    state.diagnostics.operatorAccounts = preparedResources.accountDiagnostics;
+
+    log.info(`Operator resource bootstrap: readiness=${preparedResources.summary.readiness}, configured=${preparedResources.summary.configuredAccounts}, ready=${preparedResources.summary.readyAccounts}, reused=${preparedResources.summary.reusedSessions}, bootstrapped=${preparedResources.summary.bootstrappedSessions}.`);
+    if (preparedResources.summary.warnings.length > 0) {
+        log.warning(`Operator resource bootstrap emitted ${preparedResources.summary.warnings.length} warning(s).`);
+    }
 
     if (preparedResources.readyAccounts.length > 0) {
         enqueueRuntimeJob({
@@ -557,8 +601,20 @@ async function executeGraphRootExpansionJob(input: {
         actorInput: state.input,
     });
     state.operatorResources.summary = preparedResources.summary;
+    state.diagnostics.operatorAccounts = preparedResources.accountDiagnostics;
 
     if (preparedResources.readyAccounts.length === 0) {
+        state.diagnostics.graphRootExpansion = {
+            attemptedAt: new Date().toISOString(),
+            operatorUsername: null,
+            bioLinkedUsernames: [],
+            followersUsernames: [],
+            followingUsernames: [],
+            expandedUsernames: [],
+            expandedProfiles: 0,
+            expandedPosts: 0,
+            warnings: ['Graph root expansion was skipped because no operator-backed session was ready.'],
+        };
         enqueueRuntimeJob({
             state,
             key: 'discovery_cycle:0',
@@ -611,6 +667,22 @@ async function executeGraphRootExpansionJob(input: {
         expandedProfiles,
         expandedPosts,
     });
+    state.diagnostics.graphRootExpansion = {
+        attemptedAt: new Date().toISOString(),
+        operatorUsername: preparedResources.readyAccounts[0]?.username ?? null,
+        bioLinkedUsernames: graphExpansion.bioLinkedUsernames.slice(0, 20),
+        followersUsernames: graphExpansion.followersUsernames.slice(0, 20),
+        followingUsernames: graphExpansion.followingUsernames.slice(0, 20),
+        expandedUsernames: expandedUsernames.slice(0, 20),
+        expandedProfiles,
+        expandedPosts,
+        warnings: graphExpansion.warnings.slice(0, 20),
+    };
+
+    log.info(`Graph root expansion for @${job.payload.searchUsername}: bio=${graphExpansion.bioLinkedUsernames.length}, followers=${graphExpansion.followersUsernames.length}, following=${graphExpansion.followingUsernames.length}, expandedProfiles=${expandedProfiles}, expandedPosts=${expandedPosts}.`);
+    if (graphExpansion.warnings.length > 0) {
+        log.warning(`Graph root expansion emitted ${graphExpansion.warnings.length} warning(s).`);
+    }
 
     enqueueRuntimeJob({
         state,
@@ -682,9 +754,30 @@ async function executeDiscoveryCycleJob(input: {
         .filter((post) => !scannedShortcodes.has(post.shortcode))
         .slice(0, state.input.runMode === 'freshness' ? 10 : 30);
 
+    state.diagnostics.discoveryCycles.push({
+        cycleIndex: job.payload.cycleIndex,
+        searchUsername: discoveryPlan.searchUsername,
+        searchMode: discoveryPlan.searchMode,
+        candidateProfiles: discoveryPlan.candidateProfiles,
+        candidatePosts: discoveryPlan.candidatePosts.length,
+        selectedCandidatePosts: cycleCandidatePosts.length,
+        selectedPostSamples: summarizePostSamples(cycleCandidatePosts),
+        cachedCandidatePosts: discoveryPlan.discoveryCounts.cachedCandidatePosts,
+        cachedFruitfulOwnerProfiles: discoveryPlan.discoveryCounts.cachedFruitfulOwnerProfiles,
+        externalSearchQueries: discoveryPlan.discoveryCounts.externalSearchQueries,
+        externalSearchHits: discoveryPlan.discoveryCounts.externalSearchHits,
+        externalSearchCandidatePosts: discoveryPlan.discoveryCounts.externalSearchCandidatePosts,
+        warnings: [...discoveryPlan.warnings, ...refreshedDiscoveryCandidates.warnings].slice(0, 20),
+    });
+
     log.info(`Deep cycle ${job.payload.cycleIndex + 1}/${state.input.maxDiscoveryCycles}: ${cycleCandidatePosts.length} new candidate posts selected.`);
+    log.info(`Deep cycle ${job.payload.cycleIndex + 1}: candidateProfiles=${discoveryPlan.candidateProfiles}, candidatePosts=${discoveryPlan.candidatePosts.length}, externalSearchQueries=${discoveryPlan.discoveryCounts.externalSearchQueries}, externalSearchHits=${discoveryPlan.discoveryCounts.externalSearchHits}.`);
+    if (cycleCandidatePosts.length > 0) {
+        log.info(`Deep cycle ${job.payload.cycleIndex + 1}: sample candidates ${cycleCandidatePosts.slice(0, 5).map((post) => `${post.shortcode}:${post.ownerUsername}:${post.discoverySource}`).join(', ')}`);
+    }
 
     if (cycleCandidatePosts.length === 0) {
+        log.warning(`Deep cycle ${job.payload.cycleIndex + 1}: no new candidate posts remained after dedupe and scan history.`);
         state.progress.stoppedBecause = state.progress.cyclesCompleted === 1 ? 'no_candidates' : 'saturated';
         enqueueRuntimeJob({
             state,
@@ -818,6 +911,26 @@ async function executeCommentScanBatchJob(input: {
             previousState: state.target.targetCandidateCache,
         });
 
+        state.diagnostics.commentScanBatches.push({
+            cycleIndex: job.payload.cycleIndex,
+            candidateShortcodes: cycleCandidatePosts.map((post) => post.shortcode),
+            candidateOwners: cycleCandidatePosts.map((post) => post.ownerUsername),
+            scannedPosts: cycleCommentScanResult.scannedPosts,
+            structuredCommentsScanned: cycleCommentScanResult.structuredCommentsScanned,
+            visibleCommentsScanned: cycleCommentScanResult.visibleCommentsScanned,
+            confirmedComments: cycleCommentScanResult.events.length,
+            ambiguousCandidates: cycleCommentScanResult.ambiguousCandidates.length,
+            partialFailures: cycleCommentScanResult.partialFailures,
+            expandedOwnerProfiles: cycleOwnerExpansionProfiles,
+            expandedOwnerPosts: cycleOwnerExpansionPosts,
+            warnings: cycleCommentScanResult.warnings.slice(0, 20),
+        });
+
+        log.info(`Comment scan batch ${job.payload.cycleIndex + 1}: scannedPosts=${cycleCommentScanResult.scannedPosts}, structuredComments=${cycleCommentScanResult.structuredCommentsScanned}, visibleComments=${cycleCommentScanResult.visibleCommentsScanned}, confirmed=${cycleCommentScanResult.events.length}, ambiguous=${cycleCommentScanResult.ambiguousCandidates.length}, failures=${cycleCommentScanResult.partialFailures}.`);
+        if (cycleCommentScanResult.events.length === 0) {
+            log.warning(`Comment scan batch ${job.payload.cycleIndex + 1}: zero confirmed comments from ${cycleCandidatePosts.length} candidate posts.`);
+        }
+
         if (cycleCommentScanResult.events.length === 0 && cycleOwnerExpansionPosts === 0) {
             state.progress.noProgressCycles += 1;
         } else {
@@ -874,6 +987,20 @@ async function finalizeRuntime(input: {
             events: [],
             ambiguousRecord: null,
         }));
+        state.diagnostics.finalization = {
+            generatedAt: new Date().toISOString(),
+            finalCandidatePosts: 0,
+            confirmedComments: 0,
+            confirmedReplies: 0,
+            supportingEvents: 0,
+            ambiguousCommentCandidates: 0,
+            ambiguousLikedContentCandidates: 0,
+            partialFailures: 0,
+            stoppedBecause: state.progress.stoppedBecause,
+            coverageLevel: 'unknown',
+            scanState: 'partial_failure',
+            warningCount: state.target.targetResolutionWarnings.length + state.operatorResources.summary.warnings.length,
+        };
         const summary = buildNoScanSummary({
             status: 'target_not_found_or_renamed',
             message: state.target.targetResolutionMessage ?? `No public Instagram profile could be resolved for "${state.input.username}". It may be missing, renamed, or unavailable.`,
@@ -889,6 +1016,7 @@ async function finalizeRuntime(input: {
         state.finalSummary = summary;
         state.status = 'completed';
         await Actor.setValue('RUN_SUMMARY', summary);
+        await Actor.setValue(DIAGNOSTIC_TRACE_RECORD_KEY, buildDiagnosticTrace({ state }));
         log.warning(summary.message);
         return summary;
     }
@@ -1108,6 +1236,20 @@ async function finalizeRuntime(input: {
         ...state.progress.ownerExpansionWarnings,
         ...commentScanResult.warnings,
     ];
+    state.diagnostics.finalization = {
+        generatedAt: new Date().toISOString(),
+        finalCandidatePosts: finalCandidatePosts.length,
+        confirmedComments: commentScanResult.events.length,
+        confirmedReplies: matchedReplies,
+        supportingEvents: mentionEvents + taggedAppearanceEvents + likedContentEvents,
+        ambiguousCommentCandidates: commentScanResult.ambiguousCandidates.length,
+        ambiguousLikedContentCandidates: likedContentScanResult.ambiguousCandidates.length,
+        partialFailures: commentScanResult.partialFailures + mentionTaggedScanResult.partialFailures + likedContentScanResult.partialFailures,
+        stoppedBecause: state.progress.stoppedBecause,
+        coverageLevel,
+        scanState,
+        warningCount: warnings.length + mentionTaggedScanResult.warnings.length + likedContentScanResult.warnings.length + historyMergeResult.warnings.length,
+    };
 
     const summary: RunSummary = {
         status,
@@ -1188,6 +1330,7 @@ async function finalizeRuntime(input: {
         artifacts: {
             resultBucketsRecordKey: RESULT_BUCKETS_RECORD_KEY,
             ambiguousActivityRecordKey: ambiguousActivityRecord.counts.total > 0 ? AMBIGUOUS_ACTIVITY_RECORD_KEY : null,
+            diagnosticTraceRecordKey: DIAGNOSTIC_TRACE_RECORD_KEY,
         },
         coverage: {
             level: coverageLevel,
@@ -1250,10 +1393,12 @@ async function finalizeRuntime(input: {
         warnings: [...warnings, ...likedContentScanResult.warnings, ...mentionTaggedScanResult.warnings, ...historyMergeResult.warnings],
     };
 
-    await Actor.setValue('RUN_SUMMARY', summary);
     state.finalSummary = summary;
     state.status = 'completed';
+    await Actor.setValue('RUN_SUMMARY', summary);
+    await Actor.setValue(DIAGNOSTIC_TRACE_RECORD_KEY, buildDiagnosticTrace({ state }));
     log.info(summary.message);
+    log.info(`Final diagnostics: candidatePosts=${finalCandidatePosts.length}, scannedPosts=${commentScanResult.scannedPosts}, visibleComments=${commentScanResult.visibleCommentsScanned}, confirmedComments=${commentScanResult.events.length}, ambiguousComments=${commentScanResult.ambiguousCandidates.length}, supportingEvents=${mentionEvents + taggedAppearanceEvents + likedContentEvents}.`);
     if (summary.warnings.length > 0) {
         log.warning(`Run completed with ${summary.warnings.length} warning(s).`);
     }
@@ -1265,12 +1410,16 @@ export async function runActor(input: {
 }): Promise<void> {
     const actorInput = parseInput(await Actor.getInput());
     log.info(`Starting deep investigation runtime for @${actorInput.username}.`);
+    log.info(`Run input summary: mode=${actorInput.runMode}, maxDiscoveryCycles=${actorInput.maxDiscoveryCycles}, operatorAccounts=${actorInput.operatorAccounts.length}, proxyConfigured=${Boolean(actorInput.proxyConfiguration)}.`);
 
     const runtimeStore = await openDeepInvestigationRuntimeStore();
     const candidateCacheStore = await openCandidateDiscoveryCacheStore();
     const targetHistoryStore = await openTargetHistoryStore();
 
     const runtimeState = await hydrateRuntimeState(actorInput, runtimeStore);
+    if (runtimeState.reusedExistingState || runtimeState.resumedFromCheckpoint) {
+        log.info(`Runtime state reuse: reusedExistingState=${runtimeState.reusedExistingState}, resumedFromCheckpoint=${runtimeState.resumedFromCheckpoint}, staleRecoveredJobs=${runtimeState.staleRecoveredJobs}.`);
+    }
     while (runtimeState.status === 'running') {
         const nextJob = leaseNextRuntimeJob({ state: runtimeState, now: new Date().toISOString() });
         if (!nextJob) {

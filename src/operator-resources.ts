@@ -2,7 +2,7 @@ import { Actor, log } from 'apify';
 import { type BrowserContext, chromium, type Page } from 'playwright';
 
 import { dedupeByKey, extractMentionedUsernames } from './comment-utils.js';
-import type { ActorInput, OperatorAccountInput, OperatorResourcesSummary } from './types.js';
+import type { ActorInput, OperatorAccountDiagnostic, OperatorAccountInput, OperatorResourcesSummary } from './types.js';
 
 export const OPERATOR_SESSION_STORE_NAME = 'operator-sessions';
 const SESSION_KEY_PREFIX = 'OPERATOR_SESSION__';
@@ -25,6 +25,7 @@ interface PreparedOperatorAccount {
 export interface PreparedOperatorResources {
     summary: OperatorResourcesSummary;
     readyAccounts: PreparedOperatorAccount[];
+    accountDiagnostics: OperatorAccountDiagnostic[];
 }
 
 export interface RootGraphExpansionResult {
@@ -215,6 +216,7 @@ export async function prepareOperatorResources(input: {
                 warnings: ['No operator accounts were configured, so session-aware deep discovery is disabled for this run.'],
             },
             readyAccounts: [],
+            accountDiagnostics: [],
         };
     }
 
@@ -237,6 +239,15 @@ export async function prepareOperatorResources(input: {
                 warnings: ['Proxy configuration is required before operator accounts can bootstrap or reuse deep-investigation sessions.'],
             },
             readyAccounts: [],
+            accountDiagnostics: actorInput.operatorAccounts.map((account) => ({
+                username: account.username,
+                sessionKey: account.sessionKey ?? account.username,
+                hadPersistedSession: false,
+                proxyUrlGenerated: false,
+                sessionSource: null,
+                outcome: 'proxy_configuration_unavailable',
+                warning: 'Proxy configuration is missing.',
+            })),
         };
     }
 
@@ -249,19 +260,39 @@ export async function prepareOperatorResources(input: {
     }
 
     const readyAccounts: PreparedOperatorAccount[] = [];
+    const accountDiagnostics: OperatorAccountDiagnostic[] = [];
     let reusedSessions = 0;
     let bootstrappedSessions = 0;
 
     for (const account of actorInput.operatorAccounts) {
-        if (!proxyConfiguration) break;
-
         const sessionKey = account.sessionKey ?? account.username;
         const persistedState = await sessionStore.getValue<PersistedOperatorSessionState>(buildOperatorSessionKey(account));
-        const proxyUrl = await proxyConfiguration.newUrl(sessionKey);
-        if (!proxyUrl) {
-            warnings.push(`No proxy URL could be generated for operator account @${account.username}.`);
+        const accountDiagnostic: OperatorAccountDiagnostic = {
+            username: account.username,
+            sessionKey,
+            hadPersistedSession: Boolean(persistedState?.storageState && hasSessionCookie(persistedState.storageState)),
+            proxyUrlGenerated: false,
+            sessionSource: null,
+            outcome: 'proxy_configuration_unavailable',
+            warning: null,
+        };
+
+        if (!proxyConfiguration) {
+            accountDiagnostic.warning = 'Proxy configuration could not be initialized.';
+            accountDiagnostics.push(accountDiagnostic);
             continue;
         }
+
+        const proxyUrl = await proxyConfiguration.newUrl(sessionKey);
+        if (!proxyUrl) {
+            accountDiagnostic.outcome = 'proxy_unavailable';
+            accountDiagnostic.warning = `No proxy URL could be generated for operator account @${account.username}.`;
+            warnings.push(accountDiagnostic.warning);
+            accountDiagnostics.push(accountDiagnostic);
+            log.warning(accountDiagnostic.warning);
+            continue;
+        }
+        accountDiagnostic.proxyUrlGenerated = true;
 
         if (persistedState?.storageState && hasSessionCookie(persistedState.storageState)) {
             readyAccounts.push({
@@ -271,18 +302,27 @@ export async function prepareOperatorResources(input: {
                 proxyUrl,
                 sessionSource: 'reused',
             });
+            accountDiagnostic.sessionSource = 'reused';
+            accountDiagnostic.outcome = 'reused_session';
+            accountDiagnostics.push(accountDiagnostic);
             reusedSessions += 1;
+            log.info(`Operator resource @${account.username}: reused persisted Instagram session.`);
             continue;
         }
 
         try {
+            log.info(`Operator resource @${account.username}: attempting Instagram session bootstrap.`);
             const storageState = await bootstrapOperatorSession({
                 account,
                 proxyUrl,
             });
 
             if (!storageState) {
-                warnings.push(`Operator account @${account.username} could not establish a reusable Instagram session.`);
+                accountDiagnostic.outcome = 'bootstrap_failed';
+                accountDiagnostic.warning = `Operator account @${account.username} could not establish a reusable Instagram session.`;
+                warnings.push(accountDiagnostic.warning);
+                accountDiagnostics.push(accountDiagnostic);
+                log.warning(accountDiagnostic.warning);
                 continue;
             }
 
@@ -300,10 +340,17 @@ export async function prepareOperatorResources(input: {
                 proxyUrl,
                 sessionSource: 'bootstrapped',
             });
+            accountDiagnostic.sessionSource = 'bootstrapped';
+            accountDiagnostic.outcome = 'bootstrapped_session';
+            accountDiagnostics.push(accountDiagnostic);
             bootstrappedSessions += 1;
+            log.info(`Operator resource @${account.username}: Instagram session bootstrap succeeded.`);
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown operator bootstrap error.';
-            warnings.push(`Operator account @${account.username} failed to bootstrap an Instagram session: ${message}`);
+            accountDiagnostic.outcome = 'bootstrap_failed';
+            accountDiagnostic.warning = `Operator account @${account.username} failed to bootstrap an Instagram session: ${message}`;
+            warnings.push(accountDiagnostic.warning);
+            accountDiagnostics.push(accountDiagnostic);
             log.warning(`Operator bootstrap failed for @${account.username}: ${message}`);
         }
     }
@@ -332,6 +379,7 @@ export async function prepareOperatorResources(input: {
             warnings,
         },
         readyAccounts,
+        accountDiagnostics,
     };
 }
 
@@ -347,6 +395,7 @@ export async function expandRootGraphWithOperatorResources(input: {
 
     const primaryAccount = preparedResources.readyAccounts[0];
     if (!primaryAccount) {
+        log.warning(`Root graph expansion skipped for @${targetUsername}: no operator session is ready.`);
         return {
             bioLinkedUsernames: [...bioLinkedUsernames],
             followersUsernames: [],
@@ -356,6 +405,7 @@ export async function expandRootGraphWithOperatorResources(input: {
     }
 
     try {
+        log.info(`Root graph expansion for @${targetUsername}: inspecting profile via operator @${primaryAccount.username}.`);
         const browser = await chromium.launch({
             headless: true,
             proxy: toPlaywrightProxy(primaryAccount.proxyUrl),
@@ -394,6 +444,7 @@ export async function expandRootGraphWithOperatorResources(input: {
             relationship: 'followers',
             limit: actorInput.graphExpansion.maxFollowersToInspect,
         });
+        log.info(`Root graph expansion for @${targetUsername}: collected ${followersUsernames.length} follower usernames.`);
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown followers expansion error.';
         warnings.push(`Followers root expansion failed for @${targetUsername}: ${message}`);
@@ -407,6 +458,7 @@ export async function expandRootGraphWithOperatorResources(input: {
             relationship: 'following',
             limit: actorInput.graphExpansion.maxFollowingToInspect,
         });
+        log.info(`Root graph expansion for @${targetUsername}: collected ${followingUsernames.length} following usernames.`);
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown following expansion error.';
         warnings.push(`Following root expansion failed for @${targetUsername}: ${message}`);

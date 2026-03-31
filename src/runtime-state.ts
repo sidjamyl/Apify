@@ -5,21 +5,28 @@ import type {
     ActorInput,
     AmbiguousCommentCandidate,
     CommentEvent,
+    CommentScanBatchDiagnostic,
     CommentScanResult,
     DeepInvestigationJobKind,
     DeepInvestigationJobState,
     DeepInvestigationRuntimeInfo,
     DeepInvestigationRuntimeStatus,
     DeepInvestigationStopReason,
+    DiagnosticTrace,
     DiscoveryCounts,
+    DiscoveryCycleDiagnostic,
+    FinalizationDiagnostic,
+    GraphRootExpansionDiagnostic,
     HistoryIdentityMode,
     InstagramPost,
+    OperatorAccountDiagnostic,
     OperatorResourcesSummary,
     ResolvedTarget,
     RunSummary,
     RuntimeJobCounts,
     SearchMode,
     TargetCandidateCacheState,
+    TargetResolutionDiagnostic,
 } from './types.js';
 
 export const DEEP_INVESTIGATION_RUNTIME_STORE_NAME = 'deep-investigation-runtime';
@@ -133,6 +140,15 @@ export interface RuntimeOperatorResourcesState {
     summary: OperatorResourcesSummary;
 }
 
+export interface RuntimeDiagnosticsState {
+    targetResolution: TargetResolutionDiagnostic | null;
+    operatorAccounts: OperatorAccountDiagnostic[];
+    graphRootExpansion: GraphRootExpansionDiagnostic | null;
+    discoveryCycles: DiscoveryCycleDiagnostic[];
+    commentScanBatches: CommentScanBatchDiagnostic[];
+    finalization: FinalizationDiagnostic | null;
+}
+
 export interface DeepInvestigationRuntimeState {
     version: 1;
     stateKey: string;
@@ -146,6 +162,7 @@ export interface DeepInvestigationRuntimeState {
     staleRecoveredJobs: number;
     target: RuntimeTargetContext;
     operatorResources: RuntimeOperatorResourcesState;
+    diagnostics: RuntimeDiagnosticsState;
     progress: RuntimeProgressState;
     jobs: DeepInvestigationRuntimeJob[];
     finalSummary: RunSummary | null;
@@ -199,6 +216,17 @@ function emptyOperatorResourcesSummary(): OperatorResourcesSummary {
             expandedPosts: 0,
         },
         warnings: [],
+    };
+}
+
+function emptyDiagnosticsState(): RuntimeDiagnosticsState {
+    return {
+        targetResolution: null,
+        operatorAccounts: [],
+        graphRootExpansion: null,
+        discoveryCycles: [],
+        commentScanBatches: [],
+        finalization: null,
     };
 }
 
@@ -277,6 +305,7 @@ export function createInitialDeepInvestigationRuntimeState(input: ActorInput): D
                 proxyConfigured: Boolean(input.proxyConfiguration),
             },
         },
+        diagnostics: emptyDiagnosticsState(),
         progress: {
             cyclesCompleted: 0,
             stoppedBecause: null,
@@ -301,6 +330,30 @@ export function createInitialDeepInvestigationRuntimeState(input: ActorInput): D
             now,
         })],
         finalSummary: null,
+    };
+}
+
+export function buildDiagnosticTrace(input: {
+    state: DeepInvestigationRuntimeState;
+}): DiagnosticTrace {
+    const { state } = input;
+    return {
+        generatedAt: new Date().toISOString(),
+        input: {
+            username: state.input.username,
+            runMode: state.input.runMode,
+            maxDiscoveryCycles: state.input.maxDiscoveryCycles,
+            operatorAccountCount: state.input.operatorAccounts.length,
+            proxyConfigured: Boolean(state.input.proxyConfiguration),
+            graphExpansion: state.input.graphExpansion,
+        },
+        runtime: buildRuntimeInfo({ state }),
+        targetResolution: state.diagnostics.targetResolution,
+        operatorAccounts: state.diagnostics.operatorAccounts,
+        graphRootExpansion: state.diagnostics.graphRootExpansion,
+        discoveryCycles: state.diagnostics.discoveryCycles,
+        commentScanBatches: state.diagnostics.commentScanBatches,
+        finalization: state.diagnostics.finalization,
     };
 }
 

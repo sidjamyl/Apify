@@ -228,6 +228,110 @@ export interface OperatorResourcesSummary {
 export interface ResultArtifactsSummary {
     resultBucketsRecordKey: string;
     ambiguousActivityRecordKey: string | null;
+    diagnosticTraceRecordKey: string;
+}
+
+export interface OperatorAccountDiagnostic {
+    username: string;
+    sessionKey: string;
+    hadPersistedSession: boolean;
+    proxyUrlGenerated: boolean;
+    sessionSource: 'reused' | 'bootstrapped' | null;
+    outcome: 'reused_session' | 'bootstrapped_session' | 'bootstrap_failed' | 'proxy_unavailable' | 'proxy_configuration_unavailable';
+    warning: string | null;
+}
+
+export interface TargetResolutionDiagnostic {
+    attemptedAt: string;
+    inputUsername: string;
+    status: 'pending' | 'resolved' | 'private' | 'unavailable' | 'not_found';
+    resolvedUsername: string | null;
+    searchMode: SearchMode;
+    isPrivate: boolean;
+    cachedCandidatePosts: number;
+    historicalCandidatePosts: number;
+    warningSample: string[];
+}
+
+export interface GraphRootExpansionDiagnostic {
+    attemptedAt: string;
+    operatorUsername: string | null;
+    bioLinkedUsernames: string[];
+    followersUsernames: string[];
+    followingUsernames: string[];
+    expandedUsernames: string[];
+    expandedProfiles: number;
+    expandedPosts: number;
+    warnings: string[];
+}
+
+export interface DiscoveryCycleDiagnostic {
+    cycleIndex: number;
+    searchUsername: string;
+    searchMode: SearchMode;
+    candidateProfiles: number;
+    candidatePosts: number;
+    selectedCandidatePosts: number;
+    selectedPostSamples: {
+        shortcode: string;
+        ownerUsername: string;
+        discoverySource: DiscoverySource;
+    }[];
+    cachedCandidatePosts: number;
+    cachedFruitfulOwnerProfiles: number;
+    externalSearchQueries: number;
+    externalSearchHits: number;
+    externalSearchCandidatePosts: number;
+    warnings: string[];
+}
+
+export interface CommentScanBatchDiagnostic {
+    cycleIndex: number;
+    candidateShortcodes: string[];
+    candidateOwners: string[];
+    scannedPosts: number;
+    structuredCommentsScanned: number;
+    visibleCommentsScanned: number;
+    confirmedComments: number;
+    ambiguousCandidates: number;
+    partialFailures: number;
+    expandedOwnerProfiles: number;
+    expandedOwnerPosts: number;
+    warnings: string[];
+}
+
+export interface FinalizationDiagnostic {
+    generatedAt: string;
+    finalCandidatePosts: number;
+    confirmedComments: number;
+    confirmedReplies: number;
+    supportingEvents: number;
+    ambiguousCommentCandidates: number;
+    ambiguousLikedContentCandidates: number;
+    partialFailures: number;
+    stoppedBecause: DeepInvestigationStopReason | null;
+    coverageLevel: CoverageLevel;
+    scanState: ScanState;
+    warningCount: number;
+}
+
+export interface DiagnosticTrace {
+    generatedAt: string;
+    input: {
+        username: string;
+        runMode: RunMode;
+        maxDiscoveryCycles: number;
+        operatorAccountCount: number;
+        proxyConfigured: boolean;
+        graphExpansion: GraphExpansionInput;
+    };
+    runtime: DeepInvestigationRuntimeInfo;
+    targetResolution: TargetResolutionDiagnostic | null;
+    operatorAccounts: OperatorAccountDiagnostic[];
+    graphRootExpansion: GraphRootExpansionDiagnostic | null;
+    discoveryCycles: DiscoveryCycleDiagnostic[];
+    commentScanBatches: CommentScanBatchDiagnostic[];
+    finalization: FinalizationDiagnostic | null;
 }
 
 export interface AmbiguousCommentCandidate {

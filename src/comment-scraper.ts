@@ -468,7 +468,9 @@ export async function scanCommentsOnCandidatePosts(input: {
                 visibleComments = structuredComments.comments;
                 structuredCommentsScanned += structuredComments.scannedCount;
                 warnings.push(...structuredComments.warnings);
+                log.info(`Comment scan ${post.shortcode}: structured path returned ${structuredComments.comments.length} visible comments (${structuredComments.scannedCount} scanned records).`);
             } else {
+                log.info(`Comment scan ${post.shortcode}: structured path unavailable, switching to browser fallback.`);
                 if (!browser) {
                     try {
                         browser = await chromium.launch({ headless: true });
@@ -506,6 +508,7 @@ export async function scanCommentsOnCandidatePosts(input: {
                 await tryExpandReplies(page);
                 visibleComments = await extractVisibleComments(page);
                 visibleCommentsScanned += visibleComments.length;
+                log.info(`Comment scan ${post.shortcode}: browser fallback extracted ${visibleComments.length} visible comments.`);
             }
 
             const matchedComments = visibleComments.filter((comment) => {
@@ -541,6 +544,9 @@ export async function scanCommentsOnCandidatePosts(input: {
                 comments: matchedComments,
                 resolvedUsername,
             }));
+            if (matchedComments.length === 0) {
+                log.warning(`Comment scan ${post.shortcode}: 0 confirmed matches from ${visibleComments.length} visible comments.`);
+            }
         } catch (error) {
             partialFailures += 1;
             const message = error instanceof Error ? error.message : 'Unknown comment scan error.';

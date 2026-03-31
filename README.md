@@ -127,6 +127,7 @@ Current user-facing outputs still include:
 - dataset items for confirmed or historical activity records
 - `RUN_SUMMARY`
 - `RESULT_BUCKETS`
+- `DIAGNOSTIC_TRACE`
 - `AMBIGUOUS_COMMENT_CANDIDATES`
 - `AMBIGUOUS_ACTIVITY_CANDIDATES`
 
@@ -173,6 +174,8 @@ The intended reading order remains:
   - overall investigation state, runtime recovery, operator readiness, coverage, and warnings
 - `RESULT_BUCKETS`
   - counts by visibility class, result bucket, and event type
+- `DIAGNOSTIC_TRACE`
+  - sanitized step-by-step diagnostics for target resolution, operator bootstrap, graph expansion, discovery cycles, comment scan batches, and final blockers
 - `AMBIGUOUS_ACTIVITY_CANDIDATES`
   - unified ambiguous comment and liked-content candidates
 - `AMBIGUOUS_COMMENT_CANDIDATES`
@@ -184,6 +187,7 @@ For export-oriented consumption:
 
 - use the default dataset for full activity-event export in JSON or CSV
 - use `RESULT_BUCKETS` when you want a lightweight summary of how the run distributed results across visibility and evidence buckets
+- use `DIAGNOSTIC_TRACE` when results are disappointing and you need to see where the Actor actually stalled or degraded
 - use `AMBIGUOUS_ACTIVITY_CANDIDATES` when you want to inspect or export only the uncertain evidence separated from confirmed events
 
 ## Coverage, Confidence, and Honesty

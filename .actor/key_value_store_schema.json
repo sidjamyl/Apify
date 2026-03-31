@@ -14,6 +14,12 @@
 			"key": "RESULT_BUCKETS",
 			"contentTypes": ["application/json"]
 		},
+		"diagnosticTrace": {
+			"title": "Diagnostic trace",
+			"description": "Sanitized per-run diagnostics covering target resolution, operator bootstrap, graph expansion, discovery cycles, comment scan batches, and final blocking points.",
+			"key": "DIAGNOSTIC_TRACE",
+			"contentTypes": ["application/json"]
+		},
 		"ambiguousActivityCandidates": {
 			"title": "Ambiguous activity candidates",
 			"description": "Ambiguous comment and liked-content matches kept separate from confirmed activity events.",

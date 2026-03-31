@@ -17,6 +17,11 @@
 			"title": "Result buckets and visibility counts",
 			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/RESULT_BUCKETS"
 		},
+		"diagnosticTrace": {
+			"type": "string",
+			"title": "Diagnostic trace",
+			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/DIAGNOSTIC_TRACE"
+		},
 		"ambiguousActivityCandidates": {
 			"type": "string",
 			"title": "Ambiguous activity candidates",

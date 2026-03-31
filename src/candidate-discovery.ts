@@ -480,5 +480,9 @@ export async function buildCandidateDiscoveryPlan(input: {
     };
 
     log.info(`Built candidate discovery plan with ${plan.candidatePosts.length} candidate posts using ${plan.discoveryCounts.externalSearchQueries} external queries.`);
+    log.info(`Discovery plan details: cachedCandidates=${cachedCandidatePosts.length}, frontierProfiles=${frontierProfileUsernames.length}, externalHits=${externalSearchHits.hitCount}, externalCandidates=${externalSearchCandidates.posts.length}, expandedOwnerProfiles=${plan.discoveryCounts.expandedOwnerProfiles}, expandedOwnerPosts=${plan.discoveryCounts.expandedOwnerPosts}.`);
+    if (externalSearchHits.hitCount === 0) {
+        log.warning(`External search produced zero Instagram hits for @${searchUsername} in this discovery pass.`);
+    }
     return plan;
 }
