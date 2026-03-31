@@ -1,7 +1,5 @@
-import type { KeyValueStore } from 'apify';
-import { Actor } from 'apify';
-
 import { dedupeByKey } from './comment-utils.js';
+import { openPersistentStore, type PersistentStore } from './persistent-store.js';
 import type { InstagramPost, TargetCandidateCacheState } from './types.js';
 
 export const CANDIDATE_DISCOVERY_CACHE_STORE_NAME = 'candidate-discovery-cache';
@@ -16,12 +14,15 @@ function buildTargetKey(targetUsername: string): string {
     return `${TARGET_KEY_PREFIX}${targetUsername.toLowerCase()}`;
 }
 
-export async function openCandidateDiscoveryCacheStore(): Promise<KeyValueStore> {
-    return Actor.openKeyValueStore(CANDIDATE_DISCOVERY_CACHE_STORE_NAME);
+export async function openCandidateDiscoveryCacheStore(): Promise<PersistentStore> {
+    return openPersistentStore({
+        preferredName: CANDIDATE_DISCOVERY_CACHE_STORE_NAME,
+        fallbackNamespace: 'CANDIDATE_CACHE',
+    });
 }
 
 export async function loadTargetCandidateCache(input: {
-    store: KeyValueStore;
+    store: PersistentStore;
     targetUsername: string;
 }): Promise<TargetCandidateCacheState | null> {
     const { store, targetUsername } = input;
@@ -29,7 +30,7 @@ export async function loadTargetCandidateCache(input: {
 }
 
 export async function loadCachedCandidatePosts(input: {
-    store: KeyValueStore;
+    store: PersistentStore;
     shortcodes: string[];
 }): Promise<InstagramPost[]> {
     const { store, shortcodes } = input;
@@ -46,7 +47,7 @@ export async function loadCachedCandidatePosts(input: {
 }
 
 export async function persistCandidateDiscoveryCache(input: {
-    store: KeyValueStore;
+    store: PersistentStore;
     targetUsername: string;
     candidatePosts: InstagramPost[];
     fruitfulOwnerUsernames: string[];

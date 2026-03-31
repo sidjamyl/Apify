@@ -2,6 +2,7 @@ import { Actor, log } from 'apify';
 import { type BrowserContext, chromium, type Page } from 'playwright';
 
 import { dedupeByKey, extractMentionedUsernames } from './comment-utils.js';
+import { openPersistentStore } from './persistent-store.js';
 import type { ActorInput, OperatorAccountDiagnostic, OperatorAccountInput, OperatorResourcesSummary } from './types.js';
 
 export const OPERATOR_SESSION_STORE_NAME = 'operator-sessions';
@@ -192,7 +193,10 @@ async function collectRelationshipUsernames(input: {
 }
 
 export async function openOperatorSessionStore() {
-    return Actor.openKeyValueStore(OPERATOR_SESSION_STORE_NAME);
+    return openPersistentStore({
+        preferredName: OPERATOR_SESSION_STORE_NAME,
+        fallbackNamespace: 'OPERATOR_SESSIONS',
+    });
 }
 
 export async function prepareOperatorResources(input: {

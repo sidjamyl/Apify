@@ -1,6 +1,4 @@
-import type { KeyValueStore } from 'apify';
-import { Actor } from 'apify';
-
+import { openPersistentStore, type PersistentStore } from './persistent-store.js';
 import { buildHistoricalAppearancePresentation } from './result-artifacts.js';
 import type {
     AppearanceEvent,
@@ -216,12 +214,15 @@ export function mergeHistoricalObservations(input: {
     };
 }
 
-export async function openTargetHistoryStore(): Promise<KeyValueStore> {
-    return Actor.openKeyValueStore(TARGET_HISTORY_STORE_NAME);
+export async function openTargetHistoryStore(): Promise<PersistentStore> {
+    return openPersistentStore({
+        preferredName: TARGET_HISTORY_STORE_NAME,
+        fallbackNamespace: 'TARGET_HISTORY',
+    });
 }
 
 export async function loadTargetHistoryState(input: {
-    store: KeyValueStore;
+    store: PersistentStore;
     identityMode: Exclude<HistoryIdentityMode, 'none'>;
     identityValue: string;
 }): Promise<TargetHistoryState | null> {
@@ -233,7 +234,7 @@ export async function loadTargetHistoryState(input: {
 }
 
 export async function saveTargetHistoryState(input: {
-    store: KeyValueStore;
+    store: PersistentStore;
     state: TargetHistoryState;
 }): Promise<void> {
     const { store, state } = input;

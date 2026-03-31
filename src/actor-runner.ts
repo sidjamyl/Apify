@@ -1,4 +1,3 @@
-import type { KeyValueStore } from 'apify';
 import { Actor, log } from 'apify';
 
 import {
@@ -31,6 +30,7 @@ import {
     prepareOperatorResources,
     summarizeGraphExpansion,
 } from './operator-resources.js';
+import type { PersistentStore } from './persistent-store.js';
 import {
     AMBIGUOUS_ACTIVITY_RECORD_KEY,
     buildAmbiguousActivityRecord,
@@ -409,7 +409,7 @@ function summarizePostSamples(posts: InstagramPost[]): { shortcode: string; owne
     }));
 }
 
-async function hydrateRuntimeState(input: ReturnType<typeof parseInput>, runtimeStore: KeyValueStore): Promise<DeepInvestigationRuntimeState> {
+async function hydrateRuntimeState(input: ReturnType<typeof parseInput>, runtimeStore: PersistentStore): Promise<DeepInvestigationRuntimeState> {
     const stateKey = buildDeepInvestigationRuntimeStateKey({ username: input.username, runMode: input.runMode });
     const existingState = await loadDeepInvestigationRuntimeState({ store: runtimeStore, stateKey });
 
@@ -432,8 +432,8 @@ async function hydrateRuntimeState(input: ReturnType<typeof parseInput>, runtime
 
 async function executeTargetResolutionJob(input: {
     state: DeepInvestigationRuntimeState;
-    targetHistoryStore: KeyValueStore;
-    candidateCacheStore: KeyValueStore;
+    targetHistoryStore: PersistentStore;
+    candidateCacheStore: PersistentStore;
     job: DeepInvestigationRuntimeJob;
 }): Promise<void> {
     const { state, targetHistoryStore, candidateCacheStore, job } = input;
@@ -805,7 +805,7 @@ async function executeDiscoveryCycleJob(input: {
 
 async function executeCommentScanBatchJob(input: {
     state: DeepInvestigationRuntimeState;
-    candidateCacheStore: KeyValueStore;
+    candidateCacheStore: PersistentStore;
     job: DeepInvestigationRuntimeJob;
 }): Promise<void> {
     const { state, candidateCacheStore, job } = input;
@@ -977,7 +977,7 @@ async function executeCommentScanBatchJob(input: {
 
 async function finalizeRuntime(input: {
     state: DeepInvestigationRuntimeState;
-    targetHistoryStore: KeyValueStore;
+    targetHistoryStore: PersistentStore;
 }): Promise<RunSummary> {
     const { state, targetHistoryStore } = input;
 

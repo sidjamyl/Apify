@@ -1,6 +1,4 @@
-import type { KeyValueStore } from 'apify';
-import { Actor } from 'apify';
-
+import { openPersistentStore, type PersistentStore } from './persistent-store.js';
 import type {
     ActorInput,
     AmbiguousCommentCandidate,
@@ -580,12 +578,15 @@ export function buildRuntimeInfo(input: {
     };
 }
 
-export async function openDeepInvestigationRuntimeStore(): Promise<KeyValueStore> {
-    return Actor.openKeyValueStore(DEEP_INVESTIGATION_RUNTIME_STORE_NAME);
+export async function openDeepInvestigationRuntimeStore(): Promise<PersistentStore> {
+    return openPersistentStore({
+        preferredName: DEEP_INVESTIGATION_RUNTIME_STORE_NAME,
+        fallbackNamespace: 'DEEP_RUNTIME',
+    });
 }
 
 export async function loadDeepInvestigationRuntimeState(input: {
-    store: KeyValueStore;
+    store: PersistentStore;
     stateKey: string;
 }): Promise<DeepInvestigationRuntimeState | null> {
     const { store, stateKey } = input;
@@ -594,7 +595,7 @@ export async function loadDeepInvestigationRuntimeState(input: {
 }
 
 export async function saveDeepInvestigationRuntimeState(input: {
-    store: KeyValueStore;
+    store: PersistentStore;
     state: DeepInvestigationRuntimeState;
 }): Promise<void> {
     const { store, state } = input;
@@ -602,7 +603,7 @@ export async function saveDeepInvestigationRuntimeState(input: {
 }
 
 export async function deleteDeepInvestigationRuntimeState(input: {
-    store: KeyValueStore;
+    store: PersistentStore;
     stateKey: string;
 }): Promise<void> {
     const { store, stateKey } = input;
