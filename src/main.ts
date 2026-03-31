@@ -22,12 +22,21 @@ Actor.on('aborting', async () => {
 
 await Actor.init();
 
+let fatalError: Error | null = null;
+
 try {
     await runActor({
         setAbortHandler(handler) {
             persistAbortState = handler;
         },
     });
+} catch (error) {
+    fatalError = error instanceof Error ? error : new Error('Deep investigation run failed with an unknown error.');
+    log.exception(fatalError, 'Deep investigation run failed with an unhandled exception.');
 } finally {
-    await Actor.exit();
+    if (fatalError) {
+        await Actor.fail(fatalError.message);
+    } else {
+        await Actor.exit();
+    }
 }

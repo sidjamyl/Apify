@@ -39,6 +39,11 @@ function buildOperatorSessionKey(account: Pick<OperatorAccountInput, 'username' 
     return `${SESSION_KEY_PREFIX}${account.sessionKey ?? account.username}`;
 }
 
+function normalizeProxySessionId(sessionKey: string): string {
+    const normalized = sessionKey.replace(/[^\w._~]+/g, '_');
+    return normalized.length > 0 ? normalized : 'operator_session';
+}
+
 function hasSessionCookie(storageState: StorageState): boolean {
     return storageState.cookies.some((cookie: StorageState['cookies'][number]) => cookie.name === 'sessionid' && cookie.value.length > 0);
 }
@@ -251,10 +256,18 @@ export async function prepareOperatorResources(input: {
         };
     }
 
-    const proxyConfiguration = await Actor.createProxyConfiguration({
-        ...actorInput.proxyConfiguration,
-        checkAccess: false,
-    });
+    let proxyConfiguration: Awaited<ReturnType<typeof Actor.createProxyConfiguration>> | null = null;
+    try {
+        proxyConfiguration = await Actor.createProxyConfiguration({
+            ...actorInput.proxyConfiguration,
+            checkAccess: false,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown proxy configuration error.';
+        warnings.push(`Proxy configuration could not be initialized: ${message}`);
+        log.warning(`Operator resource bootstrap could not initialize proxy configuration: ${message}`);
+    }
+
     if (!proxyConfiguration) {
         warnings.push('Proxy configuration could not be initialized, so operator-resource bootstrapping was skipped.');
     }
@@ -266,6 +279,7 @@ export async function prepareOperatorResources(input: {
 
     for (const account of actorInput.operatorAccounts) {
         const sessionKey = account.sessionKey ?? account.username;
+        const proxySessionId = normalizeProxySessionId(sessionKey);
         const persistedState = await sessionStore.getValue<PersistedOperatorSessionState>(buildOperatorSessionKey(account));
         const accountDiagnostic: OperatorAccountDiagnostic = {
             username: account.username,
@@ -283,7 +297,7 @@ export async function prepareOperatorResources(input: {
             continue;
         }
 
-        const proxyUrl = await proxyConfiguration.newUrl(sessionKey);
+        const proxyUrl = await proxyConfiguration.newUrl(proxySessionId);
         if (!proxyUrl) {
             accountDiagnostic.outcome = 'proxy_unavailable';
             accountDiagnostic.warning = `No proxy URL could be generated for operator account @${account.username}.`;
