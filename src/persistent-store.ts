@@ -20,15 +20,14 @@ export async function openPersistentStore(input: {
 
     if (Actor.isAtHome() && actorPermissionLevel === 'LIMITED_PERMISSIONS') {
         log.info(`Persistent store ${preferredName} will use the default key-value store namespace ${fallbackNamespace} because the Actor runs under LIMITED_PERMISSIONS.`);
-        const defaultStore = await Actor.openKeyValueStore();
         const prefix = `${fallbackNamespace}__`;
 
         return {
             async getValue<T>(key: string) {
-                return defaultStore.getValue<T>(`${prefix}${key}`);
+                return Actor.getValue<T>(`${prefix}${key}`);
             },
             async setValue<T>(key: string, value: T | null) {
-                await defaultStore.setValue(`${prefix}${key}`, value);
+                await Actor.setValue(`${prefix}${key}`, value);
             },
         };
     }
@@ -49,15 +48,14 @@ export async function openPersistentStore(input: {
         }
 
         log.warning(`Persistent store ${preferredName} is unavailable under limited permissions. Falling back to the default key-value store namespace ${fallbackNamespace}.`);
-        const defaultStore = await Actor.openKeyValueStore();
         const prefix = `${fallbackNamespace}__`;
 
         return {
             async getValue<T>(key: string) {
-                return defaultStore.getValue<T>(`${prefix}${key}`);
+                return Actor.getValue<T>(`${prefix}${key}`);
             },
             async setValue<T>(key: string, value: T | null) {
-                await defaultStore.setValue(`${prefix}${key}`, value);
+                await Actor.setValue(`${prefix}${key}`, value);
             },
         };
     }
