@@ -1412,11 +1412,16 @@ export async function runActor(input: {
     log.info(`Starting deep investigation runtime for @${actorInput.username}.`);
     log.info(`Run input summary: mode=${actorInput.runMode}, maxDiscoveryCycles=${actorInput.maxDiscoveryCycles}, operatorAccounts=${actorInput.operatorAccounts.length}, proxyConfigured=${Boolean(actorInput.proxyConfiguration)}.`);
 
+    log.info('Opening persistent runtime store.');
     const runtimeStore = await openDeepInvestigationRuntimeStore();
+    log.info('Opening candidate discovery cache store.');
     const candidateCacheStore = await openCandidateDiscoveryCacheStore();
+    log.info('Opening target history store.');
     const targetHistoryStore = await openTargetHistoryStore();
+    log.info('Hydrating runtime state.');
 
     const runtimeState = await hydrateRuntimeState(actorInput, runtimeStore);
+    log.info(`Runtime state hydrated for key ${runtimeState.stateKey}.`);
     if (runtimeState.reusedExistingState || runtimeState.resumedFromCheckpoint) {
         log.info(`Runtime state reuse: reusedExistingState=${runtimeState.reusedExistingState}, resumedFromCheckpoint=${runtimeState.resumedFromCheckpoint}, staleRecoveredJobs=${runtimeState.staleRecoveredJobs}.`);
     }
@@ -1428,7 +1433,9 @@ export async function runActor(input: {
         }
 
         const leasedJobKey = nextJob.key;
+        log.info(`Leased runtime job ${leasedJobKey} (${nextJob.kind}); persisting leased state.`);
         await saveDeepInvestigationRuntimeState({ store: runtimeStore, state: runtimeState });
+        log.info(`Persisted leased state for runtime job ${leasedJobKey}.`);
 
         input.setAbortHandler(async () => {
             if (runtimeState.status !== 'running') return;
@@ -1443,7 +1450,9 @@ export async function runActor(input: {
         });
 
         markRuntimeJobRunning({ state: runtimeState, jobKey: nextJob.key, now: new Date().toISOString() });
+        log.info(`Marked runtime job ${nextJob.key} as running; persisting state.`);
         await saveDeepInvestigationRuntimeState({ store: runtimeStore, state: runtimeState });
+        log.info(`Persisted running state for runtime job ${nextJob.key}.`);
 
         try {
             switch (nextJob.kind) {
