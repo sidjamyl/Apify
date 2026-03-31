@@ -16,6 +16,22 @@ export async function openPersistentStore(input: {
     fallbackNamespace: string;
 }): Promise<PersistentStore> {
     const { preferredName, fallbackNamespace } = input;
+    const { actorPermissionLevel } = Actor.getEnv();
+
+    if (Actor.isAtHome() && actorPermissionLevel === 'LIMITED_PERMISSIONS') {
+        log.info(`Persistent store ${preferredName} will use the default key-value store namespace ${fallbackNamespace} because the Actor runs under LIMITED_PERMISSIONS.`);
+        const defaultStore = await Actor.openKeyValueStore();
+        const prefix = `${fallbackNamespace}__`;
+
+        return {
+            async getValue<T>(key: string) {
+                return defaultStore.getValue<T>(`${prefix}${key}`);
+            },
+            async setValue<T>(key: string, value: T | null) {
+                await defaultStore.setValue(`${prefix}${key}`, value);
+            },
+        };
+    }
 
     try {
         const namedStore = await Actor.openKeyValueStore(preferredName);
