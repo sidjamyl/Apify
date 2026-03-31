@@ -30,6 +30,11 @@ import {
     sessionStateContainsInstagramLogin,
 } from '../src/operator-resources.js';
 import {
+    buildAmbiguousActivityRecord,
+    buildHistoricalAppearancePresentation,
+    buildResultBucketsRecord,
+} from '../src/result-artifacts.js';
+import {
     buildDeepInvestigationRuntimeStateKey,
     createInitialDeepInvestigationRuntimeState,
     leaseNextRuntimeJob,
@@ -613,5 +618,96 @@ describe('operator resource helpers', () => {
             }],
             origins: [],
         })).toBe(true);
+    });
+});
+
+describe('result artifacts', () => {
+    it('maps visible and historical events into explicit presentation fields', () => {
+        const visibleEvent = buildHistoricalAppearancePresentation({
+            type: 'comment',
+            visibilityClass: 'public',
+            resultBucket: 'confirmed_comments',
+            eventKey: 'comment:1',
+            observationState: 'visible',
+            firstSeenAt: '2026-03-31T10:00:00.000Z',
+            lastSeenAt: '2026-03-31T10:00:00.000Z',
+            disappearedAt: null,
+            targetUsername: 'nasa',
+            resolvedUsername: 'nasa',
+            commentOwnerUsername: 'nasa',
+            commentKind: 'top_level',
+            replyDepth: 0,
+            parentCommentPermalink: null,
+            commentText: 'hello',
+            createdAt: '2026-03-31T09:00:00.000Z',
+            createdAtLabel: '1h',
+            commentPermalink: 'https://www.instagram.com/p/abc/c/1/',
+            postUrl: 'https://www.instagram.com/p/abc/',
+            postShortcode: 'abc',
+            postOwnerUsername: 'esa',
+            sourceSurface: 'instagram_post_comment_thread',
+            sourceUrl: 'https://www.instagram.com/p/abc/c/1/',
+            discoverySource: 'related_profile',
+            discoveredViaUsername: 'esa',
+            matchConfidence: 'exact_username_visible',
+            matchReason: 'exact',
+        });
+
+        const historicalEvent = buildHistoricalAppearancePresentation({
+            ...visibleEvent,
+            observationState: 'historical_tombstone',
+        });
+
+        expect(visibleEvent.visibilityClass).toBe('public');
+        expect(visibleEvent.resultBucket).toBe('confirmed_comments');
+        expect(historicalEvent.visibilityClass).toBe('historical_only');
+        expect(historicalEvent.resultBucket).toBe('historical_only');
+    });
+
+    it('builds unified ambiguous activity records and result bucket counts', () => {
+        const ambiguousRecord = buildAmbiguousActivityRecord({
+            generatedAt: '2026-03-31T10:00:00.000Z',
+            commentCandidates: [{
+                type: 'comment',
+                visibilityClass: 'ambiguous',
+                resultBucket: 'ambiguous_candidates',
+                commentOwnerUsername: 'nasa_',
+                commentKind: 'top_level',
+                replyDepth: 0,
+                parentCommentPermalink: null,
+                commentTextPreview: 'hello',
+                createdAt: null,
+                createdAtLabel: null,
+                commentPermalink: 'https://www.instagram.com/p/abc/c/1/',
+                postUrl: 'https://www.instagram.com/p/abc/',
+                postShortcode: 'abc',
+                postOwnerUsername: 'esa',
+                discoverySource: 'related_profile',
+                discoveredViaUsername: 'esa',
+                ambiguityReason: 'similar',
+            }],
+            likedContentCandidates: [{
+                type: 'liked_content',
+                visibilityClass: 'ambiguous',
+                resultBucket: 'ambiguous_candidates',
+                likerUsername: 'nasa_',
+                postUrl: 'https://www.instagram.com/p/def/',
+                postShortcode: 'def',
+                postOwnerUsername: 'esa',
+                discoverySource: 'related_profile',
+                discoveredViaUsername: 'esa',
+                ambiguityReason: 'similar',
+            }],
+        });
+
+        const buckets = buildResultBucketsRecord({
+            generatedAt: '2026-03-31T10:00:00.000Z',
+            events: [],
+            ambiguousRecord,
+        });
+
+        expect(ambiguousRecord.counts.total).toBe(2);
+        expect(buckets.counts.byVisibilityClass.ambiguous).toBe(2);
+        expect(buckets.counts.byResultBucket.ambiguous_candidates).toBe(2);
     });
 });

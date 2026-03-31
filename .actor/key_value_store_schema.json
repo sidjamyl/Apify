@@ -1,16 +1,28 @@
 {
 	"actorKeyValueStoreSchemaVersion": 1,
-	"title": "Instagram Public Comment Hunter Key-Value Store",
+	"title": "Instagram Deep Investigation Key-Value Store",
 	"collections": {
 		"runSummary": {
 			"title": "Run summary",
-			"description": "User-facing comment-hunt summary for the latest lookup, including comments-first coverage, supporting-surface coverage, historical observation counts, and warnings.",
+			"description": "User-facing deep investigation summary for the latest lookup, including runtime state, operator readiness, coverage, artifacts, and warnings.",
 			"key": "RUN_SUMMARY",
 			"contentTypes": ["application/json"]
 		},
+		"resultBuckets": {
+			"title": "Result buckets",
+			"description": "Counts and interpretation guide for activity events by visibility class, result bucket, and event type.",
+			"key": "RESULT_BUCKETS",
+			"contentTypes": ["application/json"]
+		},
+		"ambiguousActivityCandidates": {
+			"title": "Ambiguous activity candidates",
+			"description": "Ambiguous comment and liked-content matches kept separate from confirmed activity events.",
+			"key": "AMBIGUOUS_ACTIVITY_CANDIDATES",
+			"contentTypes": ["application/json"]
+		},
 		"ambiguousCommentCandidates": {
-			"title": "Ambiguous comment candidates",
-			"description": "Comment-like username matches that were kept separate from confirmed public comment results.",
+			"title": "Ambiguous comment candidates (legacy compatibility)",
+			"description": "Comment-only ambiguous username matches kept for compatibility with the earlier public comment-hunter contract.",
 			"key": "AMBIGUOUS_COMMENT_CANDIDATES",
 			"contentTypes": ["application/json"]
 		}

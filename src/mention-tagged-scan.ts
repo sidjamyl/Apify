@@ -13,6 +13,8 @@ function toIsoTimestamp(unixTimestamp: number | null): string | null {
 function buildMentionEvent(post: InstagramPost, resolvedUsername: string): MentionEvent {
     return {
         type: 'mention',
+        visibilityClass: 'public',
+        resultBucket: 'supporting_activity',
         targetUsername: resolvedUsername,
         resolvedUsername,
         appearanceText: post.caption,
@@ -32,6 +34,8 @@ function buildMentionEvent(post: InstagramPost, resolvedUsername: string): Menti
 function buildTaggedAppearanceEvent(post: InstagramPost, resolvedUsername: string): TaggedAppearanceEvent {
     return {
         type: 'tagged_appearance',
+        visibilityClass: 'public',
+        resultBucket: 'supporting_activity',
         targetUsername: resolvedUsername,
         resolvedUsername,
         appearanceText: post.caption,

@@ -14,6 +14,8 @@ export type DeepInvestigationRuntimeStatus = 'running' | 'completed' | 'failed';
 export type DeepInvestigationStopReason = 'completed_all_cycles' | 'saturated' | 'no_candidates';
 export type DeepInvestigationJobKind = 'target_resolution' | 'operator_resource_bootstrap' | 'graph_root_expansion' | 'discovery_cycle' | 'comment_scan_batch' | 'finalize_run';
 export type DeepInvestigationJobState = 'queued' | 'leased' | 'running' | 'checkpointed' | 'succeeded' | 'failed';
+export type VisibilityClass = 'public' | 'session_visible' | 'historical_only' | 'ambiguous';
+export type ResultBucket = 'confirmed_comments' | 'supporting_activity' | 'historical_only' | 'ambiguous_candidates';
 
 export type DiscoverySource = 'target_profile' | 'related_profile' | 'external_search' | 'expanded_owner_graph';
 export type MatchConfidence = 'exact_username_visible';
@@ -77,6 +79,8 @@ export interface ResolvedTarget {
 
 export interface CommentEvent {
     type: 'comment';
+    visibilityClass: VisibilityClass;
+    resultBucket: ResultBucket;
     targetUsername: string;
     resolvedUsername: string;
     commentOwnerUsername: string;
@@ -100,6 +104,8 @@ export interface CommentEvent {
 
 export interface MentionEvent {
     type: 'mention';
+    visibilityClass: VisibilityClass;
+    resultBucket: ResultBucket;
     targetUsername: string;
     resolvedUsername: string;
     appearanceText: string | null;
@@ -117,6 +123,8 @@ export interface MentionEvent {
 
 export interface TaggedAppearanceEvent {
     type: 'tagged_appearance';
+    visibilityClass: VisibilityClass;
+    resultBucket: ResultBucket;
     targetUsername: string;
     resolvedUsername: string;
     appearanceText: string | null;
@@ -134,6 +142,8 @@ export interface TaggedAppearanceEvent {
 
 export interface LikedContentEvent {
     type: 'liked_content';
+    visibilityClass: VisibilityClass;
+    resultBucket: ResultBucket;
     targetUsername: string;
     resolvedUsername: string;
     appearanceText: string | null;
@@ -215,7 +225,15 @@ export interface OperatorResourcesSummary {
     warnings: string[];
 }
 
+export interface ResultArtifactsSummary {
+    resultBucketsRecordKey: string;
+    ambiguousActivityRecordKey: string | null;
+}
+
 export interface AmbiguousCommentCandidate {
+    type: 'comment';
+    visibilityClass: 'ambiguous';
+    resultBucket: 'ambiguous_candidates';
     commentOwnerUsername: string;
     commentKind: CommentKind;
     replyDepth: number;
@@ -233,6 +251,9 @@ export interface AmbiguousCommentCandidate {
 }
 
 export interface AmbiguousLikedContentCandidate {
+    type: 'liked_content';
+    visibilityClass: 'ambiguous';
+    resultBucket: 'ambiguous_candidates';
     likerUsername: string;
     postUrl: string;
     postShortcode: string;
@@ -290,6 +311,7 @@ export interface RunSummary {
         warnings: string[];
     };
     operatorResources: OperatorResourcesSummary;
+    artifacts: ResultArtifactsSummary;
     coverage: CoverageSummary;
     confidence: ConfidenceSummary;
     mentionTagged: {

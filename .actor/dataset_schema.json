@@ -6,6 +6,12 @@
 			"type": {
 				"type": "string"
 			},
+			"visibilityClass": {
+				"type": "string"
+			},
+			"resultBucket": {
+				"type": "string"
+			},
 			"eventKey": {
 				"type": "string"
 			},
@@ -89,10 +95,13 @@
 	},
 	"views": {
 		"overview": {
-			"title": "Public comment hunt results",
+			"title": "Deep investigation activity events",
 			"transformation": {
 				"fields": [
 					"type",
+					"resultBucket",
+					"visibilityClass",
+					"matchConfidence",
 					"observationState",
 					"firstSeenAt",
 					"lastSeenAt",
@@ -110,8 +119,7 @@
 					"parentCommentPermalink",
 					"postUrl",
 					"discoverySource",
-					"discoveredViaUsername",
-					"matchConfidence"
+					"discoveredViaUsername"
 				],
 				"desc": true
 			},
@@ -120,6 +128,15 @@
 				"properties": {
 					"type": {
 						"label": "Type"
+					},
+					"resultBucket": {
+						"label": "Result bucket"
+					},
+					"visibilityClass": {
+						"label": "Visibility"
+					},
+					"matchConfidence": {
+						"label": "Confidence"
 					},
 					"observationState": {
 						"label": "Observation state"
@@ -182,9 +199,6 @@
 					},
 					"discoveredViaUsername": {
 						"label": "Discovered via"
-					},
-					"matchConfidence": {
-						"label": "Confidence"
 					}
 				}
 			}

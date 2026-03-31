@@ -32,6 +32,12 @@ import {
     summarizeGraphExpansion,
 } from './operator-resources.js';
 import {
+    AMBIGUOUS_ACTIVITY_RECORD_KEY,
+    buildAmbiguousActivityRecord,
+    buildResultBucketsRecord,
+    RESULT_BUCKETS_RECORD_KEY,
+} from './result-artifacts.js';
+import {
     buildDeepInvestigationRuntimeStateKey,
     buildRuntimeInfo,
     checkpointRuntimeJob,
@@ -51,6 +57,7 @@ import {
 import type {
     CoverageLevel,
     DiscoveryCounts,
+    HistoricalAppearanceEvent,
     InstagramPost,
     RunStatus,
     RunSummary,
@@ -61,6 +68,7 @@ import type {
 type AbortHandlerSetter = (handler: (() => Promise<void>) | null) => void;
 
 interface HistoryMergeLikeResult {
+    outputEvents: HistoricalAppearanceEvent[];
     historySummary: RunSummary['history'];
     warnings: string[];
 }
@@ -160,6 +168,10 @@ function buildNoScanSummary(input: {
             warnings: [],
         },
         operatorResources: state.operatorResources.summary,
+        artifacts: {
+            resultBucketsRecordKey: RESULT_BUCKETS_RECORD_KEY,
+            ambiguousActivityRecordKey: null,
+        },
         coverage: {
             level: 'unknown',
             scanState: 'partial_failure',
@@ -857,6 +869,11 @@ async function finalizeRuntime(input: {
     const { state, targetHistoryStore } = input;
 
     if (state.target.targetResolutionStatus === 'not_found') {
+        await Actor.setValue(RESULT_BUCKETS_RECORD_KEY, buildResultBucketsRecord({
+            generatedAt: new Date().toISOString(),
+            events: [],
+            ambiguousRecord: null,
+        }));
         const summary = buildNoScanSummary({
             status: 'target_not_found_or_renamed',
             message: state.target.targetResolutionMessage ?? `No public Instagram profile could be resolved for "${state.input.username}". It may be missing, renamed, or unavailable.`,
@@ -935,6 +952,20 @@ async function finalizeRuntime(input: {
 
     if (commentScanResult.ambiguousCandidates.length > 0) {
         await Actor.setValue('AMBIGUOUS_COMMENT_CANDIDATES', commentScanResult.ambiguousCandidates);
+    } else {
+        await Actor.setValue('AMBIGUOUS_COMMENT_CANDIDATES', null);
+    }
+
+    const ambiguousActivityRecord = buildAmbiguousActivityRecord({
+        generatedAt: new Date().toISOString(),
+        commentCandidates: commentScanResult.ambiguousCandidates,
+        likedContentCandidates: likedContentScanResult.ambiguousCandidates,
+    });
+
+    if (ambiguousActivityRecord.counts.total > 0) {
+        await Actor.setValue(AMBIGUOUS_ACTIVITY_RECORD_KEY, ambiguousActivityRecord);
+    } else {
+        await Actor.setValue(AMBIGUOUS_ACTIVITY_RECORD_KEY, null);
     }
 
     const previousHistoryState = state.target.historyIdentityMode && state.target.historyIdentityValue
@@ -946,6 +977,7 @@ async function finalizeRuntime(input: {
         : null;
 
     let historyMergeResult: HistoryMergeLikeResult = {
+        outputEvents: [],
         historySummary: emptyHistorySummary(),
         warnings: [],
     };
@@ -976,6 +1008,13 @@ async function finalizeRuntime(input: {
         historyMergeResult = mergedHistory;
         log.info(`History merge finished with ${mergedHistory.historySummary.visibleEvents} visible events and ${mergedHistory.historySummary.historicalTombstones} tombstones.`);
     }
+
+    const resultBucketsRecord = buildResultBucketsRecord({
+        generatedAt: new Date().toISOString(),
+        events: historyMergeResult.outputEvents,
+        ambiguousRecord: ambiguousActivityRecord.counts.total > 0 ? ambiguousActivityRecord : null,
+    });
+    await Actor.setValue(RESULT_BUCKETS_RECORD_KEY, resultBucketsRecord);
 
     const status: RunStatus = (() => {
         if (scanState === 'partial_failure' || state.target.searchMode === 'degraded') {
@@ -1146,6 +1185,10 @@ async function finalizeRuntime(input: {
             warnings: [...state.progress.aggregatedDiscoveryWarnings, ...state.progress.ownerExpansionWarnings],
         },
         operatorResources: state.operatorResources.summary,
+        artifacts: {
+            resultBucketsRecordKey: RESULT_BUCKETS_RECORD_KEY,
+            ambiguousActivityRecordKey: ambiguousActivityRecord.counts.total > 0 ? AMBIGUOUS_ACTIVITY_RECORD_KEY : null,
+        },
         coverage: {
             level: coverageLevel,
             scanState,

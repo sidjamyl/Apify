@@ -1,21 +1,26 @@
 {
 	"actorOutputSchemaVersion": 1,
-	"title": "Instagram Public Comment Hunter (High-Recall Beta) Output",
+	"title": "Instagram Deep Investigation (Advanced Self-Serve Beta) Output",
 	"properties": {
 		"activityEvents": {
 			"type": "string",
-			"title": "Comments-first high-recall dataset",
+			"title": "Activity events dataset",
 			"template": "{{links.apiDefaultDatasetUrl}}/items"
 		},
 		"runSummary": {
 			"type": "string",
-			"title": "Comment-hunt run summary and operation state",
+			"title": "Deep investigation run summary",
 			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/RUN_SUMMARY"
 		},
-		"ambiguousCommentCandidates": {
+		"resultBuckets": {
 			"type": "string",
-			"title": "Ambiguous comment bucket",
-			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/AMBIGUOUS_COMMENT_CANDIDATES"
+			"title": "Result buckets and visibility counts",
+			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/RESULT_BUCKETS"
+		},
+		"ambiguousActivityCandidates": {
+			"type": "string",
+			"title": "Ambiguous activity candidates",
+			"template": "{{links.apiDefaultKeyValueStoreUrl}}/records/AMBIGUOUS_ACTIVITY_CANDIDATES"
 		}
 	}
 }

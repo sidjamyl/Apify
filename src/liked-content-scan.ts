@@ -15,6 +15,8 @@ const MAX_AMBIGUOUS_SAMPLES = 10;
 function buildLikedContentEvent(post: InstagramPost, resolvedUsername: string): LikedContentEvent {
     return {
         type: 'liked_content',
+        visibilityClass: 'public',
+        resultBucket: 'supporting_activity',
         targetUsername: resolvedUsername,
         resolvedUsername,
         appearanceText: post.caption,
@@ -60,6 +62,9 @@ export function scanLikedContentAppearances(input: {
 
             if (classification === 'ambiguous' && ambiguousCandidates.length < MAX_AMBIGUOUS_SAMPLES) {
                 ambiguousCandidates.push({
+                    type: 'liked_content',
+                    visibilityClass: 'ambiguous',
+                    resultBucket: 'ambiguous_candidates',
                     likerUsername,
                     postUrl: post.url,
                     postShortcode: post.shortcode,

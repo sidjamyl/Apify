@@ -126,9 +126,65 @@ Current user-facing outputs still include:
 
 - dataset items for confirmed or historical activity records
 - `RUN_SUMMARY`
+- `RESULT_BUCKETS`
 - `AMBIGUOUS_COMMENT_CANDIDATES`
+- `AMBIGUOUS_ACTIVITY_CANDIDATES`
 
 Comments and replies remain the first-class reading surface.
+
+## Result Interpretation
+
+Activity events now carry explicit presentation fields:
+
+- `type`
+  - the evidence surface, such as `comment`, `mention`, `tagged_appearance`, or `liked_content`
+- `resultBucket`
+  - `confirmed_comments`
+  - `supporting_activity`
+  - `historical_only`
+  - `ambiguous_candidates`
+- `visibilityClass`
+  - `public`
+  - `session_visible`
+  - `historical_only`
+  - `ambiguous`
+
+Interpretation guidance:
+
+- `public`
+  - visible on public surfaces scanned by the Actor
+- `session_visible`
+  - visible only because a legitimate operator-backed session exposed the relevant surface
+- `historical_only`
+  - observed in a prior run but not confirmed as currently visible in the present run
+- `ambiguous`
+  - kept separate because the Actor saw a near-match instead of a confirmed identity match
+
+The intended reading order remains:
+
+1. `confirmed_comments`
+2. `ambiguous_candidates`
+3. `supporting_activity`
+4. `historical_only`
+
+## Result Artifacts
+
+- `RUN_SUMMARY`
+  - overall investigation state, runtime recovery, operator readiness, coverage, and warnings
+- `RESULT_BUCKETS`
+  - counts by visibility class, result bucket, and event type
+- `AMBIGUOUS_ACTIVITY_CANDIDATES`
+  - unified ambiguous comment and liked-content candidates
+- `AMBIGUOUS_COMMENT_CANDIDATES`
+  - comment-only compatibility bucket preserved from the earlier comment-hunter contract
+
+## Export Usage
+
+For export-oriented consumption:
+
+- use the default dataset for full activity-event export in JSON or CSV
+- use `RESULT_BUCKETS` when you want a lightweight summary of how the run distributed results across visibility and evidence buckets
+- use `AMBIGUOUS_ACTIVITY_CANDIDATES` when you want to inspect or export only the uncertain evidence separated from confirmed events
 
 ## Coverage, Confidence, and Honesty
 

@@ -1,6 +1,7 @@
 import type { KeyValueStore } from 'apify';
 import { Actor } from 'apify';
 
+import { buildHistoricalAppearancePresentation } from './result-artifacts.js';
 import type {
     AppearanceEvent,
     HistoricalAppearanceEvent,
@@ -72,14 +73,14 @@ function toHistoricalOutputEvent(storedEvent: StoredHistoricalEvent): Historical
         }
     }
 
-    return {
+    return buildHistoricalAppearancePresentation({
         ...payload,
         eventKey: storedEvent.eventKey,
         observationState: storedEvent.observationState,
         firstSeenAt: storedEvent.firstSeenAt,
         lastSeenAt: storedEvent.lastSeenAt,
         disappearedAt: storedEvent.disappearedAt,
-    };
+    });
 }
 
 export function mergeHistoricalObservations(input: {

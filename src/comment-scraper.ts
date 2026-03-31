@@ -400,6 +400,8 @@ function buildCommentEvents(input: {
 
     return comments.map((comment) => ({
         type: 'comment',
+        visibilityClass: 'public',
+        resultBucket: 'confirmed_comments',
         targetUsername: resolvedUsername,
         resolvedUsername,
         commentOwnerUsername: comment.ownerUsername,
@@ -511,6 +513,9 @@ export async function scanCommentsOnCandidatePosts(input: {
 
                 if (classification === 'ambiguous' && ambiguousCandidates.length < MAX_AMBIGUOUS_SAMPLES) {
                     ambiguousCandidates.push({
+                        type: 'comment',
+                        visibilityClass: 'ambiguous',
+                        resultBucket: 'ambiguous_candidates',
                         commentOwnerUsername: comment.ownerUsername,
                         commentKind: comment.commentKind,
                         replyDepth: comment.replyDepth,
