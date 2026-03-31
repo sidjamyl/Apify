@@ -12,7 +12,7 @@ export type HistoryIdentityMode = 'none' | 'canonical_target' | 'input_username'
 export type RunMode = 'backfill' | 'freshness';
 export type DeepInvestigationRuntimeStatus = 'running' | 'completed' | 'failed';
 export type DeepInvestigationStopReason = 'completed_all_cycles' | 'saturated' | 'no_candidates';
-export type DeepInvestigationJobKind = 'target_resolution' | 'discovery_cycle' | 'comment_scan_batch' | 'finalize_run';
+export type DeepInvestigationJobKind = 'target_resolution' | 'operator_resource_bootstrap' | 'graph_root_expansion' | 'discovery_cycle' | 'comment_scan_batch' | 'finalize_run';
 export type DeepInvestigationJobState = 'queued' | 'leased' | 'running' | 'checkpointed' | 'succeeded' | 'failed';
 
 export type DiscoverySource = 'target_profile' | 'related_profile' | 'external_search' | 'expanded_owner_graph';
@@ -20,10 +20,32 @@ export type MatchConfidence = 'exact_username_visible';
 export type CommentKind = 'top_level' | 'reply';
 export type AppearanceType = 'comment' | 'mention' | 'tagged_appearance' | 'liked_content';
 
+export interface ProxyConfigurationInput {
+    useApifyProxy?: boolean;
+    apifyProxyGroups?: string[];
+    apifyProxyCountry?: string;
+    proxyUrls?: string[];
+}
+
+export interface OperatorAccountInput {
+    username: string;
+    password: string;
+    sessionKey?: string;
+}
+
+export interface GraphExpansionInput {
+    maxFollowersToInspect: number;
+    maxFollowingToInspect: number;
+    maxExpandedProfiles: number;
+}
+
 export interface ActorInput {
     username: string;
     runMode: RunMode;
     maxDiscoveryCycles: number;
+    operatorAccounts: OperatorAccountInput[];
+    proxyConfiguration: ProxyConfigurationInput | null;
+    graphExpansion: GraphExpansionInput;
 }
 
 export interface InstagramPost {
@@ -176,6 +198,23 @@ export interface DeepInvestigationRuntimeInfo {
     jobCounts: RuntimeJobCounts;
 }
 
+export interface OperatorResourcesSummary {
+    readiness: 'not_configured' | 'proxy_missing' | 'not_ready' | 'partial' | 'ready';
+    configuredAccounts: number;
+    readyAccounts: number;
+    reusedSessions: number;
+    bootstrappedSessions: number;
+    proxyConfigured: boolean;
+    graphExpansion: {
+        bioLinkedUsernames: number;
+        followersUsernames: number;
+        followingUsernames: number;
+        expandedProfiles: number;
+        expandedPosts: number;
+    };
+    warnings: string[];
+}
+
 export interface AmbiguousCommentCandidate {
     commentOwnerUsername: string;
     commentKind: CommentKind;
@@ -250,6 +289,7 @@ export interface RunSummary {
         counts: DiscoveryCounts;
         warnings: string[];
     };
+    operatorResources: OperatorResourcesSummary;
     coverage: CoverageSummary;
     confidence: ConfidenceSummary;
     mentionTagged: {

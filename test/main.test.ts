@@ -26,6 +26,10 @@ import { buildDegradedDiscoveryPlan } from '../src/instagram-profile.js';
 import { scanLikedContentAppearances } from '../src/liked-content-scan.js';
 import { scanMentionTaggedAppearances } from '../src/mention-tagged-scan.js';
 import {
+    parseUsernamesFromDialogAnchors,
+    sessionStateContainsInstagramLogin,
+} from '../src/operator-resources.js';
+import {
     buildDeepInvestigationRuntimeStateKey,
     createInitialDeepInvestigationRuntimeState,
     leaseNextRuntimeJob,
@@ -43,6 +47,13 @@ describe('input parsing', () => {
             username: 'nasa',
             runMode: 'backfill',
             maxDiscoveryCycles: 5,
+            operatorAccounts: [],
+            proxyConfiguration: null,
+            graphExpansion: {
+                maxFollowersToInspect: 25,
+                maxFollowingToInspect: 25,
+                maxExpandedProfiles: 20,
+            },
         });
     });
 
@@ -51,6 +62,46 @@ describe('input parsing', () => {
             username: 'nasa',
             runMode: 'freshness',
             maxDiscoveryCycles: 2,
+            operatorAccounts: [],
+            proxyConfiguration: null,
+            graphExpansion: {
+                maxFollowersToInspect: 25,
+                maxFollowingToInspect: 25,
+                maxExpandedProfiles: 20,
+            },
+        });
+    });
+
+    it('parses operator accounts, proxy configuration, and graph expansion options', () => {
+        expect(parseInput({
+            username: 'NASA',
+            operatorAccounts: [{ username: '@Operator.One', password: 'secret', sessionKey: 'sticky-1' }],
+            proxyConfiguration: {
+                useApifyProxy: true,
+                apifyProxyGroups: ['RESIDENTIAL'],
+                apifyProxyCountry: 'US',
+            },
+            graphExpansion: {
+                maxFollowersToInspect: 10,
+                maxFollowingToInspect: 12,
+                maxExpandedProfiles: 8,
+            },
+        })).toEqual({
+            username: 'nasa',
+            runMode: 'backfill',
+            maxDiscoveryCycles: 5,
+            operatorAccounts: [{ username: 'operator.one', password: 'secret', sessionKey: 'sticky-1' }],
+            proxyConfiguration: {
+                useApifyProxy: true,
+                apifyProxyGroups: ['RESIDENTIAL'],
+                apifyProxyCountry: 'US',
+                proxyUrls: undefined,
+            },
+            graphExpansion: {
+                maxFollowersToInspect: 10,
+                maxFollowingToInspect: 12,
+                maxExpandedProfiles: 8,
+            },
         });
     });
 });
@@ -477,6 +528,13 @@ describe('deep investigation runtime state', () => {
             username: 'nasa',
             runMode: 'backfill',
             maxDiscoveryCycles: 5,
+            operatorAccounts: [],
+            proxyConfiguration: null,
+            graphExpansion: {
+                maxFollowersToInspect: 25,
+                maxFollowingToInspect: 25,
+                maxExpandedProfiles: 20,
+            },
         });
 
         const leasedJob = leaseNextRuntimeJob({
@@ -502,6 +560,13 @@ describe('deep investigation runtime state', () => {
             username: 'nasa',
             runMode: 'freshness',
             maxDiscoveryCycles: 2,
+            operatorAccounts: [],
+            proxyConfiguration: null,
+            graphExpansion: {
+                maxFollowersToInspect: 25,
+                maxFollowingToInspect: 25,
+                maxExpandedProfiles: 20,
+            },
         });
 
         leaseNextRuntimeJob({
@@ -520,5 +585,33 @@ describe('deep investigation runtime state', () => {
         expect(state.resumedFromCheckpoint).toBe(true);
         expect(state.staleRecoveredJobs).toBe(1);
         expect(state.jobs[0]?.checkpoint?.note).toContain('Recovered automatically');
+    });
+});
+
+describe('operator resource helpers', () => {
+    it('extracts normalized usernames from relationship dialog anchors', () => {
+        const result = parseUsernamesFromDialogAnchors([
+            { href: '/ESA/', text: 'ESA' },
+            { href: '/nasa/', text: 'NASA' },
+            { href: null, text: 'jane.doe' },
+        ], 5);
+
+        expect(result).toEqual(['esa', 'nasa', 'jane.doe']);
+    });
+
+    it('detects persisted Instagram session cookies', () => {
+        expect(sessionStateContainsInstagramLogin({
+            cookies: [{
+                name: 'sessionid',
+                value: 'abc',
+                domain: '.instagram.com',
+                path: '/',
+                expires: -1,
+                httpOnly: true,
+                secure: true,
+                sameSite: 'Lax',
+            }],
+            origins: [],
+        })).toBe(true);
     });
 });

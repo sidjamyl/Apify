@@ -27,6 +27,11 @@ import { resolveTargetProfile } from './instagram-profile.js';
 import { scanLikedContentAppearances } from './liked-content-scan.js';
 import { scanMentionTaggedAppearances } from './mention-tagged-scan.js';
 import {
+    expandRootGraphWithOperatorResources,
+    prepareOperatorResources,
+    summarizeGraphExpansion,
+} from './operator-resources.js';
+import {
     buildDeepInvestigationRuntimeStateKey,
     buildRuntimeInfo,
     checkpointRuntimeJob,
@@ -115,6 +120,8 @@ function buildNoScanSummary(input: {
         partialFailures,
     } = input;
 
+    const combinedWarnings = [...warnings, ...state.operatorResources.summary.warnings];
+
     return {
         status,
         message,
@@ -152,6 +159,7 @@ function buildNoScanSummary(input: {
             counts: emptyDiscoveryCounts(),
             warnings: [],
         },
+        operatorResources: state.operatorResources.summary,
         coverage: {
             level: 'unknown',
             scanState: 'partial_failure',
@@ -218,9 +226,9 @@ function buildNoScanSummary(input: {
             likedContentAmbiguousCandidates: 0,
             ambiguousCandidates: 0,
             partialFailures,
-            warnings: warnings.length,
+            warnings: combinedWarnings.length,
         },
-        warnings,
+        warnings: combinedWarnings,
     };
 }
 
@@ -382,7 +390,12 @@ async function hydrateRuntimeState(input: ReturnType<typeof parseInput>, runtime
     const stateKey = buildDeepInvestigationRuntimeStateKey({ username: input.username, runMode: input.runMode });
     const existingState = await loadDeepInvestigationRuntimeState({ store: runtimeStore, stateKey });
 
-    if (existingState && existingState.status === 'running' && existingState.input.maxDiscoveryCycles === input.maxDiscoveryCycles) {
+    const isCompatibleExistingState = existingState
+        && 'operatorResources' in existingState
+        && Array.isArray(existingState.input.operatorAccounts)
+        && 'graphExpansion' in existingState.input;
+
+    if (isCompatibleExistingState && existingState.status === 'running' && existingState.input.maxDiscoveryCycles === input.maxDiscoveryCycles) {
         existingState.reusedExistingState = true;
         recoverInterruptedRuntimeJobs({ state: existingState, now: new Date().toISOString() });
         await saveDeepInvestigationRuntimeState({ store: runtimeStore, state: existingState });
@@ -472,6 +485,43 @@ async function executeTargetResolutionJob(input: {
 
     enqueueRuntimeJob({
         state,
+        key: 'operator_resource_bootstrap',
+        kind: 'operator_resource_bootstrap',
+        payload: {
+            kind: 'operator_resource_bootstrap',
+        },
+        now: new Date().toISOString(),
+    });
+    log.info(`Initialized deep investigation runtime for @${state.target.searchUsername}.`);
+    void job;
+}
+
+async function executeOperatorResourceBootstrapJob(input: {
+    state: DeepInvestigationRuntimeState;
+}): Promise<void> {
+    const { state } = input;
+    const preparedResources = await prepareOperatorResources({
+        actorInput: state.input,
+    });
+
+    state.operatorResources.summary = preparedResources.summary;
+
+    if (preparedResources.readyAccounts.length > 0) {
+        enqueueRuntimeJob({
+            state,
+            key: 'graph_root_expansion',
+            kind: 'graph_root_expansion',
+            payload: {
+                kind: 'graph_root_expansion',
+                searchUsername: state.target.searchUsername,
+            },
+            now: new Date().toISOString(),
+        });
+        return;
+    }
+
+    enqueueRuntimeJob({
+        state,
         key: 'discovery_cycle:0',
         kind: 'discovery_cycle',
         payload: {
@@ -480,8 +530,86 @@ async function executeTargetResolutionJob(input: {
         },
         now: new Date().toISOString(),
     });
-    log.info(`Initialized deep investigation runtime for @${state.target.searchUsername}.`);
-    void job;
+}
+
+async function executeGraphRootExpansionJob(input: {
+    state: DeepInvestigationRuntimeState;
+    job: DeepInvestigationRuntimeJob;
+}): Promise<void> {
+    const { state, job } = input;
+    if (job.payload.kind !== 'graph_root_expansion') {
+        throw new Error(`Expected graph_root_expansion payload for ${job.key}.`);
+    }
+
+    const preparedResources = await prepareOperatorResources({
+        actorInput: state.input,
+    });
+    state.operatorResources.summary = preparedResources.summary;
+
+    if (preparedResources.readyAccounts.length === 0) {
+        enqueueRuntimeJob({
+            state,
+            key: 'discovery_cycle:0',
+            kind: 'discovery_cycle',
+            payload: {
+                kind: 'discovery_cycle',
+                cycleIndex: 0,
+            },
+            now: new Date().toISOString(),
+        });
+        return;
+    }
+
+    const graphExpansion = await expandRootGraphWithOperatorResources({
+        actorInput: state.input,
+        targetUsername: job.payload.searchUsername,
+        biography: state.target.resolvedTarget?.biography ?? null,
+        preparedResources,
+    });
+
+    const expandedUsernames = dedupeByKey(
+        [
+            ...graphExpansion.bioLinkedUsernames,
+            ...graphExpansion.followersUsernames,
+            ...graphExpansion.followingUsernames,
+        ].filter((username) => username !== state.target.searchUsername),
+        (username) => username,
+    ).slice(0, state.input.graphExpansion.maxExpandedProfiles);
+
+    let expandedProfiles = 0;
+    let expandedPosts = 0;
+    if (expandedUsernames.length > 0) {
+        const expandedProfilesResult = await expandPublicProfiles({
+            profileUsernames: expandedUsernames,
+            searchUsername: state.target.searchUsername,
+            discoverySource: 'expanded_owner_graph',
+        });
+
+        state.progress.knownCandidatePosts = mergeKnownCandidatePosts(state.progress.knownCandidatePosts, expandedProfilesResult.expandedPosts);
+        state.progress.aggregatedDiscoveryWarnings.push(...expandedProfilesResult.warnings);
+        state.progress.aggregatedDiscoveryCounts.expandedOwnerProfiles += expandedProfilesResult.expandedOwnerProfiles;
+        state.progress.aggregatedDiscoveryCounts.expandedOwnerPosts += expandedProfilesResult.expandedPosts.length;
+        expandedProfiles = expandedProfilesResult.expandedOwnerProfiles;
+        expandedPosts = expandedProfilesResult.expandedPosts.length;
+    }
+
+    state.operatorResources.summary = summarizeGraphExpansion({
+        previousSummary: state.operatorResources.summary,
+        expansion: graphExpansion,
+        expandedProfiles,
+        expandedPosts,
+    });
+
+    enqueueRuntimeJob({
+        state,
+        key: 'discovery_cycle:0',
+        kind: 'discovery_cycle',
+        payload: {
+            kind: 'discovery_cycle',
+            cycleIndex: 0,
+        },
+        now: new Date().toISOString(),
+    });
 }
 
 async function executeDiscoveryCycleJob(input: {
@@ -936,6 +1064,7 @@ async function finalizeRuntime(input: {
 
     const warnings = [
         ...state.target.targetResolutionWarnings,
+        ...state.operatorResources.summary.warnings,
         ...state.progress.aggregatedDiscoveryWarnings,
         ...state.progress.ownerExpansionWarnings,
         ...commentScanResult.warnings,
@@ -1016,6 +1145,7 @@ async function finalizeRuntime(input: {
             },
             warnings: [...state.progress.aggregatedDiscoveryWarnings, ...state.progress.ownerExpansionWarnings],
         },
+        operatorResources: state.operatorResources.summary,
         coverage: {
             level: coverageLevel,
             scanState,
@@ -1130,6 +1260,17 @@ export async function runActor(input: {
                         state: runtimeState,
                         targetHistoryStore,
                         candidateCacheStore,
+                        job: nextJob,
+                    });
+                    break;
+                case 'operator_resource_bootstrap':
+                    await executeOperatorResourceBootstrapJob({
+                        state: runtimeState,
+                    });
+                    break;
+                case 'graph_root_expansion':
+                    await executeGraphRootExpansionJob({
+                        state: runtimeState,
                         job: nextJob,
                     });
                     break;

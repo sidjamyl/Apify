@@ -14,6 +14,7 @@ import type {
     DiscoveryCounts,
     HistoryIdentityMode,
     InstagramPost,
+    OperatorResourcesSummary,
     ResolvedTarget,
     RunSummary,
     RuntimeJobCounts,
@@ -47,6 +48,15 @@ export interface DiscoveryCycleJobPayload {
     cycleIndex: number;
 }
 
+export interface OperatorResourceBootstrapJobPayload {
+    kind: 'operator_resource_bootstrap';
+}
+
+export interface GraphRootExpansionJobPayload {
+    kind: 'graph_root_expansion';
+    searchUsername: string;
+}
+
 export interface CommentScanBatchJobPayload {
     kind: 'comment_scan_batch';
     cycleIndex: number;
@@ -60,6 +70,8 @@ export interface FinalizeRunJobPayload {
 
 export type RuntimeJobPayload =
     | TargetResolutionJobPayload
+    | OperatorResourceBootstrapJobPayload
+    | GraphRootExpansionJobPayload
     | DiscoveryCycleJobPayload
     | CommentScanBatchJobPayload
     | FinalizeRunJobPayload;
@@ -117,6 +129,10 @@ export interface RuntimeProgressState {
     scannedShortcodes: string[];
 }
 
+export interface RuntimeOperatorResourcesState {
+    summary: OperatorResourcesSummary;
+}
+
 export interface DeepInvestigationRuntimeState {
     version: 1;
     stateKey: string;
@@ -129,6 +145,7 @@ export interface DeepInvestigationRuntimeState {
     resumedFromCheckpoint: boolean;
     staleRecoveredJobs: number;
     target: RuntimeTargetContext;
+    operatorResources: RuntimeOperatorResourcesState;
     progress: RuntimeProgressState;
     jobs: DeepInvestigationRuntimeJob[];
     finalSummary: RunSummary | null;
@@ -163,6 +180,25 @@ function emptyCommentScanAggregate(): RuntimeCommentScanAggregate {
         warnings: [],
         events: [],
         ambiguousCandidates: [],
+    };
+}
+
+function emptyOperatorResourcesSummary(): OperatorResourcesSummary {
+    return {
+        readiness: 'not_configured',
+        configuredAccounts: 0,
+        readyAccounts: 0,
+        reusedSessions: 0,
+        bootstrappedSessions: 0,
+        proxyConfigured: false,
+        graphExpansion: {
+            bioLinkedUsernames: 0,
+            followersUsernames: 0,
+            followingUsernames: 0,
+            expandedProfiles: 0,
+            expandedPosts: 0,
+        },
+        warnings: [],
     };
 }
 
@@ -233,6 +269,13 @@ export function createInitialDeepInvestigationRuntimeState(input: ActorInput): D
             historicalCandidatePosts: [],
             historicalFruitfulOwners: [],
             targetCandidateCache: null,
+        },
+        operatorResources: {
+            summary: {
+                ...emptyOperatorResourcesSummary(),
+                configuredAccounts: input.operatorAccounts.length,
+                proxyConfigured: Boolean(input.proxyConfiguration),
+            },
         },
         progress: {
             cyclesCompleted: 0,

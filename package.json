@@ -2,7 +2,7 @@
 	"name": "instagram-public-comment-discovery",
 	"version": "0.0.1",
 	"type": "module",
-	"description": "Comments-first, cumulative high-recall Instagram public comment hunter with backfill and freshness modes.",
+	"description": "Advanced self-serve Instagram deep investigation Actor with operator-backed sessions, graph expansion, and backfill/freshness modes.",
 	"engines": {
 		"node": ">=18.0.0"
 	},

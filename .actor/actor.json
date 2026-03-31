@@ -2,8 +2,8 @@
 	"$schema": "https://apify.com/schemas/v1/actor.ide.json",
 	"actorSpecification": 1,
 	"name": "instagram-public-comment-discovery",
-	"title": "Instagram Public Comment Hunter (High-Recall Beta)",
-	"description": "Comments-first, cumulative public Instagram comment discovery by username. Designed for high-recall backfill and repeated freshness runs, with supporting likes/mention/tagged signals and explicit non-exhaustive limits.",
+	"title": "Instagram Deep Investigation (Advanced Self-Serve Beta)",
+	"description": "Advanced self-serve Instagram deep investigation by target username. Builds on the comments-first discovery engine with operator accounts, required proxy-aware session bootstrap, root graph expansion, repeated backfill/freshness runs, and explicit non-exhaustive limits.",
 	"version": "0.1",
 	"buildTag": "latest",
 	"meta": {

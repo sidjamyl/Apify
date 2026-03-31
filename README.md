@@ -1,177 +1,178 @@
-# Instagram Public Comment Hunter (High-Recall Beta)
+# Instagram Deep Investigation (Advanced Self-Serve Beta)
 
-Comments-first Apify Actor for finding as many publicly visible Instagram comments as possible for a username.
+Advanced self-serve Apify Actor for deep Instagram investigation by target username.
 
-This product is intentionally positioned as a **high-recall public beta**:
+This product builds on the existing comments-first discovery engine, but it is no longer positioned as a lightweight public-only lookup. It is now an **advanced deep-investigation beta** that can combine:
 
-- comments and replies are the main value
-- runs can be longer and more aggressive than a lightweight scraper
-- discovery is cumulative across runs
-- supporting likes, mentions, and tagged appearances remain secondary
+- cumulative discovery memory across runs
+- backfill and freshness investigation modes
+- typed checkpointed runtime execution
+- operator-backed session bootstrap and reuse
+- proxy-aware root graph expansion
+- comments-first scanning with supporting appearance surfaces
 
 ## Main Promise
 
-Start from a username and search for publicly visible Instagram comments attributable to that username.
+Start from **any Instagram target username** and investigate the target's observable Instagram footprint as deeply as the supported visibility surfaces allow.
 
-The Actor is designed to keep improving over time:
+Important:
 
-- it reuses prior discovery memory
-- it rescans productive areas of the public graph
-- it supports repeated runs instead of treating every run as a fresh one-off lookup
+- the target username does **not** need to belong to you
+- operator accounts are **execution resources**, not target identities
+- results remain **best-effort and non-exhaustive**
 
-This includes best-effort support for **public traces left by private accounts on public posts** when those traces are discoverable.
+## Product Positioning
+
+This Actor is for **advanced self-serve users** who are willing to supply legitimate operator accounts and proxy configuration to unlock deeper, session-aware discovery.
+
+It is not a consumer-grade one-click public scraper.
+
+## Investigation Modes
+
+- `backfill`
+  - deeper first-pass investigation
+  - wider discovery effort
+  - longer runtime and heavier resource usage
+
+- `freshness`
+  - lighter revisit mode
+  - reuses prior memory and runtime state
+  - intended for repeated follow-up investigations
+
+## Required Operating Assumptions
+
+For true deep investigation behavior, the Actor expects:
+
+- legitimate operator Instagram accounts supplied by the user
+- proxy configuration capable of supporting sticky, reusable sessions
+
+Without those resources, the Actor can still fall back to weaker public-only behavior, but operator readiness will be reported as degraded or unavailable in the run summary.
 
 ## Input
 
+Primary fields:
+
 - `username`
-- optional `runMode`
-  - `backfill`: deeper multi-cycle discovery
-  - `freshness`: lighter repeated update mode
-- optional `maxDiscoveryCycles`
+- `runMode`
+- `maxDiscoveryCycles`
+- `proxyConfiguration`
+- `operatorAccounts`
+- `graphExpansion`
 
-No Instagram login is required from the end user in the public flow.
+### Target semantics
 
-## Main Output
+`username` is always the **target account to investigate**.
 
-The main dataset remains comments-first.
+It can be any Instagram username.
 
-Current event types:
+It does not need to match any operator account.
 
-- `comment`
-- `liked_content`
-- `mention`
-- `tagged_appearance`
+### Operator accounts
 
-The intended reading order remains:
-1. confirmed comments and replies
-2. ambiguous comment candidates
-3. supporting surfaces
+`operatorAccounts` are legitimate Instagram accounts you provide so the Actor can:
 
-## Confirmed vs Ambiguous Comments
+- bootstrap reusable sessions
+- reuse prior session state
+- inspect session-visible root graph surfaces
+- expand discovery through follower / following roots and bio-linked pivots
 
-Confirmed comments and replies are returned in the dataset.
+### Proxy configuration
 
-Ambiguous near-matches are separated into:
+`proxyConfiguration` is the Actor-level network configuration used for operator-backed work.
 
-- `AMBIGUOUS_COMMENT_CANDIDATES`
-
-The Actor does not silently merge probable username matches into confirmed results.
-
-## High-Recall Operation
-
-This Actor is no longer just a single-pass scraper.
-
-It now supports:
-
-- repeated discovery memory reuse
-- frontier-style prioritization of productive owners and graph regions
-- multi-cycle runs inside one execution
-- distinct operating modes for backfill vs freshness
-
-The `RUN_SUMMARY` includes an `operation` section that explains:
-
-- which run mode was used
-- how many discovery cycles were attempted
-- how many cycles completed
-- why the run stopped
+In practice, reliable deep investigation depends on proxies because session reuse and anti-blocking behavior materially affect what can be inspected.
 
 ## Discovery Model
 
-The Actor uses a broad but still bounded public discovery model.
+The Actor can combine:
 
-It can combine:
-
-- public Instagram profile-derived discovery
+- canonical or degraded target resolution
+- public profile-derived discovery
 - external public web search for Instagram post URLs
 - cached candidate posts from previous runs
 - cached productive owners from previous runs
-- frontier-style prioritization driven by historical yield
+- checkpointed runtime reuse
+- operator-backed root graph expansion via:
+  - bio-linked usernames
+  - followers
+  - following
 
-This is necessary because Instagram does not provide a reliable public API for “all comments by this username”.
+This still does **not** mean the Actor can recover every appearance a target ever made.
 
 ## Comment Fetching Model
 
-The Actor prefers structured comment retrieval when that path is publicly accessible.
+The Actor remains **comments-first** in product value.
 
-When structured retrieval is unavailable or blocked, it falls back to browser DOM extraction.
+It prefers structured comment retrieval where available and falls back to browser extraction when needed. Supporting surfaces such as mentions, tagged appearances, and weak like signals are still useful, but comments and replies remain the primary reading order.
 
-This means the Actor is **JSON/GraphQL-first in architecture**, but still keeps a browser fallback because many logged-out public comment surfaces are inconsistent.
+## Runtime and Recovery
+
+The Actor now runs through a typed, checkpointed runtime.
+
+That means investigations are designed to support:
+
+- pause / resume behavior
+- retry from checkpoint instead of zero
+- runtime-state reuse between interrupted runs
+- recovery of stale leased work on later runs
+
+The `RUN_SUMMARY` now includes runtime metadata under `operation.runtime`.
+
+## Main Output
+
+The Actor remains Apify-native.
+
+Current user-facing outputs still include:
+
+- dataset items for confirmed or historical activity records
+- `RUN_SUMMARY`
+- `AMBIGUOUS_COMMENT_CANDIDATES`
+
+Comments and replies remain the first-class reading surface.
 
 ## Coverage, Confidence, and Honesty
 
-The Actor writes a `RUN_SUMMARY` record that explains:
+The Actor is designed for strong recall effort, but it is still **non-exhaustive**.
+
+The `RUN_SUMMARY` explains:
 
 - target resolution status
-- operation mode and cycle behavior
+- runtime reuse and checkpoint recovery
 - discovery breadth and warnings
-- cache/frontier reuse
+- operator readiness and graph expansion warnings
 - comment coverage and confidence
 - supporting-surface coverage
 - historical observation reuse and tombstones
 
-The Actor does **not** present “no confirmed comments found” as proof that the target has never commented publicly.
+The Actor does **not** present an empty confirmed-comment result as proof that the target has never commented.
 
 ## Important Limits
 
-- This Actor is high-recall, but still **non-exhaustive**.
-- It does not guarantee recovery of all public comments a user has ever made.
-- Instagram public surfaces change often and may expose only partial data.
-- Private accounts can still leave public traces on public posts, but recovery depends on those traces being discoverable.
-- Structured comment fetching is not uniformly available when logged out.
-- Likes remain weaker and more experimental than comments.
-- Strong recall may require longer runtime and stronger anti-blocking support behind the scenes.
-- Missing activity is only meaningful when the relevant branch had enough coverage to support that interpretation.
-
-## Anti-Blocking Reality
-
-This product is designed under the assumption that stronger anti-blocking support matters in real high-recall operation.
-
-In practical terms, that means:
-
-- proxies may materially improve reliability
-- persistent sessions may materially improve reliability
-- repeated runs are part of the recall strategy, not just an operational detail
-
-The public Store contract should therefore be read as a high-effort beta search product, not as a guaranteed comment archive.
+- This Actor does not guarantee complete lifetime recovery of all appearances.
+- Instagram visibility changes often and can expose only partial data.
+- Private targets are only recoverable to the extent that traces are visible on supported surfaces.
+- Operator sessions may still encounter rate limits, checkpoints, or incomplete graph access.
+- Structured comment retrieval is not uniformly available.
+- Like signals remain weaker than comments.
 
 ## Out of Scope
 
-- non-public Instagram data
-- DMs, Close Friends, and private messaging surfaces
-- guaranteed complete lifetime recovery of all public comments
-- guaranteed full like reconstruction
-- treating likes, mentions, or tagged appearances as equal to comments in the public promise
-
-## Pricing Guidance
-
-This Actor should be priced by **discovery effort**, not only by result count.
-
-Why:
-
-- long runs can consume meaningful discovery effort even when confirmed results are sparse
-- repeated runs improve recall through persistent memory reuse
-- comments, likes, and supporting surfaces do not have equal recoverability
-
-The pricing contract should therefore avoid implying that value is determined only by the number of returned events.
-
-## Public Beta Positioning
-
-This is a public beta and should be presented as such:
-
-- comments-first
-- cumulative and long-running
-- explicit about uncertainty
-- explicit about non-guarantees
-- explicit about operating assumptions for real high recall
+- DMs and private messaging surfaces
+- surfaces not normally visible to legitimate operator accounts
+- fake, disposable, or fabricated operator accounts
+- guaranteed exhaustive lifetime recovery
+- treating weak signals as equal to comments in the product reading order
 
 ## Persistence
 
-Repeated lookup state is stored in:
+The Actor currently persists investigation value across runs in stores such as:
 
 - `target-history`
 - `candidate-discovery-cache`
+- `deep-investigation-runtime`
+- `operator-sessions`
 
-This persistence is a core part of the product value because the Actor improves through repeated runs.
+These stores are part of the product value because repeated runs should improve effectiveness over time.
 
 ## Local Development
 
@@ -181,13 +182,38 @@ Run locally with:
 /home/jamyl/.local/share/apify-cli/node_modules/.bin/apify run
 ```
 
-Example input:
+Example minimal input:
 
 ```json
 {
   "username": "nasa",
   "runMode": "backfill",
   "maxDiscoveryCycles": 5
+}
+```
+
+Example deep-investigation input:
+
+```json
+{
+  "username": "nasa",
+  "runMode": "backfill",
+  "maxDiscoveryCycles": 5,
+  "proxyConfiguration": {
+    "useApifyProxy": true
+  },
+  "operatorAccounts": [
+    {
+      "username": "research_operator",
+      "password": "<secret>",
+      "sessionKey": "op-1"
+    }
+  ],
+  "graphExpansion": {
+    "maxFollowersToInspect": 25,
+    "maxFollowingToInspect": 25,
+    "maxExpandedProfiles": 20
+  }
 }
 ```
 

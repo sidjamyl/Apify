@@ -1,12 +1,12 @@
 {
-	"title": "Instagram Public Comment Hunter (High-Recall Beta) Input",
+	"title": "Instagram Deep Investigation (Advanced Self-Serve Beta) Input",
 	"type": "object",
 	"schemaVersion": 1,
 	"properties": {
 		"username": {
 			"title": "Target username",
 			"type": "string",
-			"description": "Instagram username to investigate. The Actor is comments-first and aims for high recall on public comment traces, including traces left by private accounts on public posts when discoverable. No end-user login is required in the public flow, but real high-recall operation depends on stronger discovery, longer runs, and anti-blocking support behind the scenes.",
+			"description": "Instagram username to investigate. This can be any target username, not necessarily one of your operator accounts. Operator accounts are execution resources only.",
 			"pattern": "^@?[A-Za-z0-9._]+$",
 			"editor": "textfield",
 			"prefill": "nasa"
@@ -14,7 +14,7 @@
 		"runMode": {
 			"title": "Run mode",
 			"type": "string",
-			"description": "Backfill runs are longer and try to widen recall as much as possible. Freshness runs are lighter and prioritize repeated updates using existing discovery memory.",
+			"description": "Backfill runs aim for deeper first-pass discovery. Freshness runs are lighter revisits that reuse prior runtime memory and previously productive branches.",
 			"enum": ["backfill", "freshness"],
 			"enumTitles": ["Backfill", "Freshness"],
 			"default": "backfill"
@@ -22,9 +22,81 @@
 		"maxDiscoveryCycles": {
 			"title": "Max discovery cycles",
 			"type": "integer",
-			"description": "How many internal discovery/scan cycles the Actor should attempt before stopping. Higher values favor deeper recall, longer runtime, and higher discovery effort.",
+			"description": "How many internal discovery/scan cycles the Actor should attempt before stopping. Higher values increase recall effort, runtime, and operator-resource usage.",
 			"default": 5,
 			"minimum": 1
+		},
+		"proxyConfiguration": {
+			"title": "Proxy configuration",
+			"type": "object",
+			"description": "Required for operator-backed deep investigations. Configure Apify Proxy or your own proxies so operator sessions can bootstrap and reuse sticky, anti-blocking network identity.",
+			"editor": "proxy",
+			"default": {
+				"useApifyProxy": true
+			}
+		},
+		"operatorAccounts": {
+			"title": "Operator accounts",
+			"type": "array",
+			"description": "Legitimate Instagram accounts you provide for session-aware deep discovery. These accounts are not the target; they are execution resources used to inspect session-visible graph surfaces and bootstrap reusable sessions.",
+			"editor": "json",
+			"items": {
+				"type": "object",
+				"properties": {
+					"username": {
+						"title": "Operator username",
+						"type": "string",
+						"description": "Instagram username of the legitimate operator account used as an execution resource."
+					},
+					"password": {
+						"title": "Operator password",
+						"type": "string",
+						"description": "Password for the operator account so the Actor can bootstrap and persist a reusable session."
+					},
+					"sessionKey": {
+						"title": "Sticky session key",
+						"type": "string",
+						"description": "Optional stable session key used to tie the operator account to a persistent proxy/session identity."
+					}
+				},
+				"required": ["username", "password"]
+			},
+			"prefill": [
+				{
+					"username": "research_operator",
+					"password": "<secret>",
+					"sessionKey": "op-1"
+				}
+			]
+		},
+		"graphExpansion": {
+			"title": "Graph expansion settings",
+			"type": "object",
+			"description": "Controls how aggressively the Actor expands root graph discovery through bio-linked accounts, followers, following, and the resulting profile expansions.",
+			"editor": "json",
+			"properties": {
+				"maxFollowersToInspect": {
+					"title": "Max followers to inspect",
+					"type": "integer",
+					"description": "How many follower usernames the Actor should try to collect from the target's root graph during session-aware expansion.",
+					"default": 25,
+					"minimum": 1
+				},
+				"maxFollowingToInspect": {
+					"title": "Max following to inspect",
+					"type": "integer",
+					"description": "How many following usernames the Actor should try to collect from the target's root graph during session-aware expansion.",
+					"default": 25,
+					"minimum": 1
+				},
+				"maxExpandedProfiles": {
+					"title": "Max expanded profiles",
+					"type": "integer",
+					"description": "Maximum number of root graph usernames that should be turned into expanded profile discovery during a single run.",
+					"default": 20,
+					"minimum": 1
+				}
+			}
 		}
 	},
 	"required": ["username"]
