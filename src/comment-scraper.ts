@@ -46,6 +46,13 @@ interface StructuredCommentFetchResult {
     scannedCount: number;
 }
 
+interface RefreshedPagePostMetadata {
+    ownerUsername: string | null;
+    caption: string | null;
+    mediaId: string | null;
+    mentionedUsernames: string[];
+}
+
 interface RawApiComment {
     pk?: string;
     text?: string;
@@ -166,6 +173,35 @@ async function fetchStructuredCommentsForPost(post: InstagramPost): Promise<Stru
         warnings,
         scannedCount,
     };
+}
+
+async function refreshPostMetadataFromPage(page: Page): Promise<RefreshedPagePostMetadata> {
+    return page.evaluate(() => {
+        const metas = Array.from(document.querySelectorAll('meta')).map((meta) => ({
+            property: meta.getAttribute('property'),
+            name: meta.getAttribute('name'),
+            content: meta.getAttribute('content'),
+        }));
+        const canonical = metas.find((meta) => meta.property === 'og:url')?.content ?? null;
+        const description = metas.find((meta) => meta.name === 'description' || meta.property === 'og:description')?.content ?? null;
+        const ownerFromDescription = description?.match(/-\s*([A-Za-z0-9._]+)\s+on\s/i)?.[1]?.toLowerCase() ?? null;
+        const ownerFromCanonical = canonical?.match(/instagram\.com\/([A-Za-z0-9._]+)\/(?:p|reel)\//i)?.[1]?.toLowerCase() ?? null;
+        const caption = description?.includes(':')
+            ? description.split(/:\s*/).slice(1).join(': ').trim().replace(/^"|"\.?\s*$/g, '')
+            : null;
+        const mentionedUsernames = caption
+            ? Array.from(caption.matchAll(/@([A-Za-z0-9._]+)/g)).map((match) => match[1].toLowerCase())
+            : [];
+        const html = document.documentElement.innerHTML;
+        const mediaId = html.match(/instagram:\/\/media\?id=(\d+)/)?.[1] ?? null;
+
+        return {
+            ownerUsername: ownerFromDescription ?? ownerFromCanonical,
+            caption,
+            mediaId,
+            mentionedUsernames,
+        };
+    });
 }
 
 async function tryExpandVisibleComments(page: Page): Promise<void> {
@@ -457,6 +493,13 @@ export async function scanCommentsOnCandidatePosts(input: {
 
                 await page.goto(post.url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
                 await page.waitForTimeout(POST_WAIT_MS);
+                const refreshedMetadata = await refreshPostMetadataFromPage(page);
+                post.ownerUsername = refreshedMetadata.ownerUsername ?? post.ownerUsername;
+                post.caption = refreshedMetadata.caption ?? post.caption;
+                post.mediaId = refreshedMetadata.mediaId ?? post.mediaId;
+                post.mentionedUsernames = refreshedMetadata.mentionedUsernames.length > 0
+                    ? refreshedMetadata.mentionedUsernames
+                    : post.mentionedUsernames;
                 await tryExpandVisibleComments(page);
                 await tryExpandReplies(page);
                 visibleComments = await extractVisibleComments(page);
