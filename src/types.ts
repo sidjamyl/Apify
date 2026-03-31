@@ -10,6 +10,10 @@ export type ObservationState = 'visible' | 'historical_tombstone' | 'historical_
 export type SearchMode = 'canonical' | 'degraded';
 export type HistoryIdentityMode = 'none' | 'canonical_target' | 'input_username';
 export type RunMode = 'backfill' | 'freshness';
+export type DeepInvestigationRuntimeStatus = 'running' | 'completed' | 'failed';
+export type DeepInvestigationStopReason = 'completed_all_cycles' | 'saturated' | 'no_candidates';
+export type DeepInvestigationJobKind = 'target_resolution' | 'discovery_cycle' | 'comment_scan_batch' | 'finalize_run';
+export type DeepInvestigationJobState = 'queued' | 'leased' | 'running' | 'checkpointed' | 'succeeded' | 'failed';
 
 export type DiscoverySource = 'target_profile' | 'related_profile' | 'external_search' | 'expanded_owner_graph';
 export type MatchConfidence = 'exact_username_visible';
@@ -139,6 +143,39 @@ export interface CoverageSummary {
     reason: string;
 }
 
+export interface DiscoveryCounts {
+    targetProfilePosts: number;
+    relatedProfilePosts: number;
+    cachedCandidatePosts: number;
+    cachedFruitfulOwnerProfiles: number;
+    frontierProfilesQueued: number;
+    externalSearchQueries: number;
+    externalSearchHits: number;
+    externalSearchCandidatePosts: number;
+    expandedOwnerProfiles: number;
+    expandedOwnerPosts: number;
+}
+
+export interface RuntimeJobCounts {
+    queued: number;
+    leased: number;
+    running: number;
+    checkpointed: number;
+    succeeded: number;
+    failed: number;
+}
+
+export interface DeepInvestigationRuntimeInfo {
+    storeName: string;
+    stateKey: string | null;
+    reusedExistingState: boolean;
+    resumedFromCheckpoint: boolean;
+    staleRecoveredJobs: number;
+    lastCheckpointAt: string | null;
+    activeJobKey: string | null;
+    jobCounts: RuntimeJobCounts;
+}
+
 export interface AmbiguousCommentCandidate {
     commentOwnerUsername: string;
     commentKind: CommentKind;
@@ -190,7 +227,8 @@ export interface RunSummary {
         runMode: RunMode;
         maxDiscoveryCycles: number;
         cyclesCompleted: number;
-        stoppedBecause: 'completed_all_cycles' | 'saturated' | 'no_candidates';
+        stoppedBecause: DeepInvestigationStopReason;
+        runtime: DeepInvestigationRuntimeInfo;
     };
     target: TargetSnapshot;
     comments: {
@@ -209,18 +247,7 @@ export interface RunSummary {
     discovery: {
         searchMode: SearchMode;
         searchUsername: string;
-        counts: {
-            targetProfilePosts: number;
-            relatedProfilePosts: number;
-            cachedCandidatePosts: number;
-            cachedFruitfulOwnerProfiles: number;
-            frontierProfilesQueued: number;
-            externalSearchQueries: number;
-            externalSearchHits: number;
-            externalSearchCandidatePosts: number;
-            expandedOwnerProfiles: number;
-            expandedOwnerPosts: number;
-        };
+        counts: DiscoveryCounts;
         warnings: string[];
     };
     coverage: CoverageSummary;

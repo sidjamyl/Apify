@@ -25,6 +25,13 @@ import { normalizeUsername, parseInput } from '../src/input.js';
 import { buildDegradedDiscoveryPlan } from '../src/instagram-profile.js';
 import { scanLikedContentAppearances } from '../src/liked-content-scan.js';
 import { scanMentionTaggedAppearances } from '../src/mention-tagged-scan.js';
+import {
+    buildDeepInvestigationRuntimeStateKey,
+    createInitialDeepInvestigationRuntimeState,
+    leaseNextRuntimeJob,
+    recoverInterruptedRuntimeJobs,
+    runtimeJobCounts,
+} from '../src/runtime-state.js';
 
 describe('input parsing', () => {
     it('normalizes usernames with @ and case changes', () => {
@@ -456,5 +463,62 @@ describe('history merge', () => {
         expect(result.historySummary.historicalUnconfirmed).toBe(1);
         expect(result.historySummary.identityMode).toBe('input_username');
         expect(result.warnings.some((warning) => warning.includes('provisional'))).toBe(true);
+    });
+});
+
+describe('deep investigation runtime state', () => {
+    it('builds a stable runtime state key from username and run mode', () => {
+        expect(buildDeepInvestigationRuntimeStateKey({ username: 'NASA', runMode: 'backfill' })).toBe('RUNTIME_STATE__nasa__backfill');
+        expect(buildDeepInvestigationRuntimeStateKey({ username: 'NASA', runMode: 'freshness' })).toBe('RUNTIME_STATE__nasa__freshness');
+    });
+
+    it('leases the next queued runtime job and exposes job counts', () => {
+        const state = createInitialDeepInvestigationRuntimeState({
+            username: 'nasa',
+            runMode: 'backfill',
+            maxDiscoveryCycles: 5,
+        });
+
+        const leasedJob = leaseNextRuntimeJob({
+            state,
+            now: '2026-03-31T12:00:00.000Z',
+            leaseMs: 60_000,
+        });
+
+        expect(leasedJob?.key).toBe('target_resolution');
+        expect(leasedJob?.state).toBe('leased');
+        expect(runtimeJobCounts(state.jobs)).toEqual({
+            queued: 0,
+            leased: 1,
+            running: 0,
+            checkpointed: 0,
+            succeeded: 0,
+            failed: 0,
+        });
+    });
+
+    it('recovers interrupted leased jobs back to checkpointed state', () => {
+        const state = createInitialDeepInvestigationRuntimeState({
+            username: 'nasa',
+            runMode: 'freshness',
+            maxDiscoveryCycles: 2,
+        });
+
+        leaseNextRuntimeJob({
+            state,
+            now: '2026-03-31T12:00:00.000Z',
+            leaseMs: 60_000,
+        });
+
+        const recoveredJobs = recoverInterruptedRuntimeJobs({
+            state,
+            now: '2026-03-31T12:02:00.000Z',
+        });
+
+        expect(recoveredJobs).toBe(1);
+        expect(state.jobs[0]?.state).toBe('checkpointed');
+        expect(state.resumedFromCheckpoint).toBe(true);
+        expect(state.staleRecoveredJobs).toBe(1);
+        expect(state.jobs[0]?.checkpoint?.note).toContain('Recovered automatically');
     });
 });
