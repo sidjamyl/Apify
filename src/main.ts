@@ -8,7 +8,7 @@ import {
     openCandidateDiscoveryCacheStore,
     persistCandidateDiscoveryCache,
 } from './candidate-cache.js';
-import { buildCandidateDiscoveryPlan, expandPublicProfiles } from './candidate-discovery.js';
+import { buildCandidateDiscoveryPlan, expandPublicProfiles, refreshCandidatePostsMetadata } from './candidate-discovery.js';
 import { scanCommentsOnCandidatePosts } from './comment-scraper.js';
 import {
     computeConfidenceLevel,
@@ -480,6 +480,8 @@ async function run(): Promise<void> {
             ],
             cachedTargetState: targetCandidateCache,
         });
+        const refreshedDiscoveryCandidates = await refreshCandidatePostsMetadata(discoveryPlan.candidatePosts);
+        discoveryPlan.candidatePosts = refreshedDiscoveryCandidates.posts;
         searchUsername = discoveryPlan.searchUsername;
         lastDiscoverySearchMode = discoveryPlan.searchMode;
         lastDiscoverySearchUsername = discoveryPlan.searchUsername;
@@ -495,7 +497,7 @@ async function run(): Promise<void> {
         aggregatedDiscoveryCounts.externalSearchCandidatePosts += discoveryPlan.discoveryCounts.externalSearchCandidatePosts;
         aggregatedDiscoveryCounts.expandedOwnerProfiles += discoveryPlan.discoveryCounts.expandedOwnerProfiles;
         aggregatedDiscoveryCounts.expandedOwnerPosts += discoveryPlan.discoveryCounts.expandedOwnerPosts;
-        aggregatedDiscoveryWarnings.push(...discoveryPlan.warnings);
+        aggregatedDiscoveryWarnings.push(...discoveryPlan.warnings, ...refreshedDiscoveryCandidates.warnings);
 
         for (const post of discoveryPlan.candidatePosts) {
             if (!knownCandidatePosts.has(post.shortcode)) {

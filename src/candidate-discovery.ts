@@ -295,6 +295,67 @@ async function fetchPostCandidatesFromUrls(urls: string[], searchUsername: strin
     return { posts, warnings };
 }
 
+export async function refreshCandidatePostsMetadata(posts: InstagramPost[]): Promise<{ posts: InstagramPost[]; warnings: string[]; }> {
+    const warnings: string[] = [];
+    const refreshedPosts: InstagramPost[] = [];
+
+    for (const post of posts) {
+        const shouldRefresh = !post.mediaId
+            || !post.caption
+            || !post.ownerUsername
+            || (post.discoverySource === 'external_search' && post.discoveredViaUsername === post.ownerUsername);
+
+        if (!shouldRefresh) {
+            refreshedPosts.push(post);
+            continue;
+        }
+
+        try {
+            const response = await fetch(post.url, {
+                headers: SEARCH_HEADERS,
+                signal: AbortSignal.timeout(30_000),
+            });
+
+            if (!response.ok) {
+                warnings.push(`Failed to refresh metadata for ${post.url}: HTTP ${response.status}.`);
+                refreshedPosts.push(post);
+                continue;
+            }
+
+            const html = await response.text();
+            const refreshedPost = parseInstagramPostMetadataFromHtml({
+                url: post.url,
+                html,
+                discoverySource: post.discoverySource,
+                discoveredViaUsername: post.discoveredViaUsername,
+            });
+
+            if (!refreshedPost) {
+                warnings.push(`Could not refresh metadata for ${post.url}; keeping cached version.`);
+                refreshedPosts.push(post);
+                continue;
+            }
+
+            refreshedPosts.push({
+                ...post,
+                ...refreshedPost,
+                discoverySource: post.discoverySource,
+                discoveredViaUsername: post.discoveredViaUsername,
+                takenAtTimestamp: post.takenAtTimestamp ?? refreshedPost.takenAtTimestamp,
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown metadata refresh error.';
+            warnings.push(`Failed to refresh metadata for ${post.url}: ${message}`);
+            refreshedPosts.push(post);
+        }
+    }
+
+    return {
+        posts: dedupeByKey(refreshedPosts, (post) => post.shortcode),
+        warnings,
+    };
+}
+
 export async function expandPublicProfiles(input: {
     profileUsernames: string[];
     searchUsername: string;
