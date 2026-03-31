@@ -557,7 +557,7 @@ async function executeOperatorResourceBootstrapJob(input: {
     state.operatorResources.summary = preparedResources.summary;
     state.diagnostics.operatorAccounts = preparedResources.accountDiagnostics;
 
-    log.info(`Operator resource bootstrap: readiness=${preparedResources.summary.readiness}, configured=${preparedResources.summary.configuredAccounts}, ready=${preparedResources.summary.readyAccounts}, reused=${preparedResources.summary.reusedSessions}, bootstrapped=${preparedResources.summary.bootstrappedSessions}.`);
+    log.info(`Operator resource bootstrap: readiness=${preparedResources.summary.readiness}, configured=${preparedResources.summary.configuredAccounts}, ready=${preparedResources.summary.readyAccounts}, provided=${preparedResources.summary.providedSessions}, reused=${preparedResources.summary.reusedSessions}, bootstrapped=${preparedResources.summary.bootstrappedSessions}.`);
     if (preparedResources.summary.warnings.length > 0) {
         log.warning(`Operator resource bootstrap emitted ${preparedResources.summary.warnings.length} warning(s).`);
     }
@@ -607,6 +607,10 @@ async function executeGraphRootExpansionJob(input: {
         state.diagnostics.graphRootExpansion = {
             attemptedAt: new Date().toISOString(),
             operatorUsername: null,
+            profilePageUrl: null,
+            profilePageTitle: null,
+            debugHtmlRecordKey: null,
+            debugScreenshotRecordKey: null,
             bioLinkedUsernames: [],
             followersUsernames: [],
             followingUsernames: [],
@@ -670,6 +674,10 @@ async function executeGraphRootExpansionJob(input: {
     state.diagnostics.graphRootExpansion = {
         attemptedAt: new Date().toISOString(),
         operatorUsername: preparedResources.readyAccounts[0]?.username ?? null,
+        profilePageUrl: graphExpansion.profilePageUrl,
+        profilePageTitle: graphExpansion.profilePageTitle,
+        debugHtmlRecordKey: graphExpansion.debugHtmlRecordKey,
+        debugScreenshotRecordKey: graphExpansion.debugScreenshotRecordKey,
         bioLinkedUsernames: graphExpansion.bioLinkedUsernames.slice(0, 20),
         followersUsernames: graphExpansion.followersUsernames.slice(0, 20),
         followingUsernames: graphExpansion.followingUsernames.slice(0, 20),

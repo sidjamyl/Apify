@@ -238,8 +238,14 @@ export interface OperatorAccountDiagnostic {
     sessionKey: string;
     hadPersistedSession: boolean;
     proxyUrlGenerated: boolean;
+    sessionValidated: boolean;
+    authenticatedSession: boolean;
+    observedPageUrl: string | null;
+    observedPageTitle: string | null;
+    debugHtmlRecordKey: string | null;
+    debugScreenshotRecordKey: string | null;
     sessionSource: 'provided' | 'reused' | 'bootstrapped' | null;
-    outcome: 'provided_session' | 'reused_session' | 'bootstrapped_session' | 'bootstrap_failed' | 'missing_credentials' | 'proxy_unavailable' | 'proxy_configuration_unavailable';
+    outcome: 'provided_session' | 'reused_session' | 'bootstrapped_session' | 'invalid_session' | 'bootstrap_failed' | 'missing_credentials' | 'proxy_unavailable' | 'proxy_configuration_unavailable';
     warning: string | null;
 }
 
@@ -258,6 +264,10 @@ export interface TargetResolutionDiagnostic {
 export interface GraphRootExpansionDiagnostic {
     attemptedAt: string;
     operatorUsername: string | null;
+    profilePageUrl: string | null;
+    profilePageTitle: string | null;
+    debugHtmlRecordKey: string | null;
+    debugScreenshotRecordKey: string | null;
     bioLinkedUsernames: string[];
     followersUsernames: string[];
     followingUsernames: string[];

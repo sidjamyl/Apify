@@ -30,10 +30,24 @@ export interface PreparedOperatorResources {
 }
 
 export interface RootGraphExpansionResult {
+    profilePageUrl: string | null;
+    profilePageTitle: string | null;
+    debugHtmlRecordKey: string | null;
+    debugScreenshotRecordKey: string | null;
     bioLinkedUsernames: string[];
     followersUsernames: string[];
     followingUsernames: string[];
     warnings: string[];
+}
+
+interface SessionValidationResult {
+    isAuthenticated: boolean;
+    pageUrl: string;
+    pageTitle: string;
+    debugHtmlRecordKey: string | null;
+    debugScreenshotRecordKey: string | null;
+    reason: string | null;
+    storageState: StorageState;
 }
 
 function buildOperatorSessionKey(account: Pick<OperatorAccountInput, 'username' | 'sessionKey'>): string {
@@ -43,6 +57,11 @@ function buildOperatorSessionKey(account: Pick<OperatorAccountInput, 'username' 
 function normalizeProxySessionId(sessionKey: string): string {
     const normalized = sessionKey.replace(/[^\w._~]+/g, '_');
     return normalized.length > 0 ? normalized : 'operator_session';
+}
+
+function buildOperatorDebugRecordKey(username: string, suffix: string): string {
+    const normalizedUsername = username.replace(/[^a-z0-9._-]+/gi, '_');
+    return `OPERATOR_DEBUG__${normalizedUsername}__${suffix}`;
 }
 
 function hasSessionCookie(storageState: StorageState): boolean {
@@ -110,6 +129,105 @@ async function dismissInstagramCookieBanner(page: Page): Promise<void> {
     }
 }
 
+async function persistOperatorDebugArtifacts(input: {
+    username: string;
+    suffix: string;
+    page: Page;
+}): Promise<{ htmlRecordKey: string | null; screenshotRecordKey: string | null }> {
+    const { username, suffix, page } = input;
+    const htmlRecordKey = buildOperatorDebugRecordKey(username, `${suffix}.html`);
+    const screenshotRecordKey = buildOperatorDebugRecordKey(username, `${suffix}.png`);
+
+    try {
+        const html = await page.content();
+        await Actor.setValue(htmlRecordKey, html, { contentType: 'text/html; charset=utf-8' });
+    } catch {
+        return { htmlRecordKey: null, screenshotRecordKey: null };
+    }
+
+    try {
+        const screenshot = await page.screenshot({ fullPage: true, type: 'png' });
+        await Actor.setValue(screenshotRecordKey, screenshot, { contentType: 'image/png' });
+    } catch {
+        return { htmlRecordKey, screenshotRecordKey: null };
+    }
+
+    return { htmlRecordKey, screenshotRecordKey };
+}
+
+async function validateOperatorSession(input: {
+    account: Pick<OperatorAccountInput, 'username'>;
+    storageState: StorageState;
+    proxyUrl: string;
+}): Promise<SessionValidationResult> {
+    const { account, storageState, proxyUrl } = input;
+    const browser = await chromium.launch({
+        headless: true,
+        proxy: toPlaywrightProxy(proxyUrl),
+    });
+
+    try {
+        const context = await browser.newContext({ storageState });
+        const page = await context.newPage();
+        await page.goto('https://www.instagram.com/accounts/edit/', {
+            waitUntil: 'domcontentloaded',
+            timeout: 60_000,
+        });
+        await page.waitForTimeout(4_000);
+
+        const pageUrl = page.url();
+        const pageTitle = await page.title().catch(() => '');
+        const bodyText = await page.locator('body').innerText().catch(() => '');
+        const loginFieldVisible = await page.locator('input[name="username"]').count() > 0;
+        const redirectedToLogin = pageUrl.includes('/accounts/login');
+        const challengePage = pageUrl.includes('/challenge/') || /challenge/i.test(bodyText);
+        const loggedInNavVisible = (await page.locator('a[href="/accounts/edit/"]').count() > 0)
+            || (await page.locator('a[href="/direct/inbox/"]').count() > 0)
+            || (await page.locator('nav').count() > 0 && !redirectedToLogin);
+        const isAuthenticated = !loginFieldVisible && !redirectedToLogin && !challengePage && loggedInNavVisible;
+        const nextStorageState = await context.storageState();
+
+        if (isAuthenticated) {
+            return {
+                isAuthenticated: true,
+                pageUrl,
+                pageTitle,
+                debugHtmlRecordKey: null,
+                debugScreenshotRecordKey: null,
+                reason: null,
+                storageState: nextStorageState,
+            };
+        }
+
+        const artifacts = await persistOperatorDebugArtifacts({
+            username: account.username,
+            suffix: 'session-validation',
+            page,
+        });
+
+        let reason = 'Instagram did not expose the expected authenticated navigation after session injection.';
+        if (redirectedToLogin) {
+            reason = 'Instagram redirected the provided session to the login page.';
+        } else if (challengePage) {
+            reason = 'Instagram served a challenge or checkpoint page instead of an authenticated settings view.';
+        } else if (loginFieldVisible) {
+            reason = 'Instagram still rendered a login form after session injection.';
+        }
+
+        return {
+            isAuthenticated: false,
+            pageUrl,
+            pageTitle,
+            debugHtmlRecordKey: artifacts.htmlRecordKey,
+            debugScreenshotRecordKey: artifacts.screenshotRecordKey,
+            reason,
+            storageState: nextStorageState,
+        };
+    } finally {
+        await browser.close();
+    }
+}
+
 async function bootstrapOperatorSession(input: {
     account: OperatorAccountInput & { password: string };
     proxyUrl: string;
@@ -163,8 +281,9 @@ async function collectRelationshipUsernames(input: {
         });
         await page.waitForTimeout(3_000);
 
-        const relationshipLink = page.locator(`a[href="/${targetUsername}/${relationship}/"]`).first();
+        const relationshipLink = page.locator(`a[href*="/${relationship}/"]`).first();
         if (!await relationshipLink.count()) {
+            log.warning(`Root graph expansion for @${targetUsername}: no ${relationship} link matched on ${page.url()}.`);
             return [];
         }
 
@@ -271,6 +390,12 @@ export async function prepareOperatorResources(input: {
                 sessionKey: account.sessionKey ?? account.username,
                 hadPersistedSession: false,
                 proxyUrlGenerated: false,
+                sessionValidated: false,
+                authenticatedSession: false,
+                observedPageUrl: null,
+                observedPageTitle: null,
+                debugHtmlRecordKey: null,
+                debugScreenshotRecordKey: null,
                 sessionSource: null,
                 outcome: 'proxy_configuration_unavailable',
                 warning: 'Proxy configuration is missing.',
@@ -309,6 +434,12 @@ export async function prepareOperatorResources(input: {
             sessionKey,
             hadPersistedSession: Boolean(persistedState?.storageState && hasSessionCookie(persistedState.storageState)),
             proxyUrlGenerated: false,
+            sessionValidated: false,
+            authenticatedSession: false,
+            observedPageUrl: null,
+            observedPageTitle: null,
+            debugHtmlRecordKey: null,
+            debugScreenshotRecordKey: null,
             sessionSource: null,
             outcome: 'proxy_configuration_unavailable',
             warning: null,
@@ -332,18 +463,38 @@ export async function prepareOperatorResources(input: {
         accountDiagnostic.proxyUrlGenerated = true;
 
         if (account.sessionId) {
-            const storageState = buildStorageStateFromSessionId(account.sessionId);
+            const validation = await validateOperatorSession({
+                account,
+                storageState: buildStorageStateFromSessionId(account.sessionId),
+                proxyUrl,
+            });
+            accountDiagnostic.sessionValidated = true;
+            accountDiagnostic.authenticatedSession = validation.isAuthenticated;
+            accountDiagnostic.observedPageUrl = validation.pageUrl;
+            accountDiagnostic.observedPageTitle = validation.pageTitle;
+            accountDiagnostic.debugHtmlRecordKey = validation.debugHtmlRecordKey;
+            accountDiagnostic.debugScreenshotRecordKey = validation.debugScreenshotRecordKey;
+
+            if (!validation.isAuthenticated) {
+                accountDiagnostic.outcome = 'invalid_session';
+                accountDiagnostic.warning = `Provided sessionId for @${account.username} was not accepted by Instagram. ${validation.reason ?? ''}`.trim();
+                warnings.push(accountDiagnostic.warning);
+                accountDiagnostics.push(accountDiagnostic);
+                log.warning(accountDiagnostic.warning);
+                continue;
+            }
+
             const persistedSession: PersistedOperatorSessionState = {
                 username: account.username,
                 sessionKey,
                 savedAt: new Date().toISOString(),
-                storageState,
+                storageState: validation.storageState,
             };
             await sessionStore.setValue(buildOperatorSessionKey(account), persistedSession);
             readyAccounts.push({
                 username: account.username,
                 sessionKey,
-                storageState,
+                storageState: validation.storageState,
                 proxyUrl,
                 sessionSource: 'provided',
             });
@@ -356,10 +507,32 @@ export async function prepareOperatorResources(input: {
         }
 
         if (persistedState?.storageState && hasSessionCookie(persistedState.storageState)) {
+            const validation = await validateOperatorSession({
+                account,
+                storageState: persistedState.storageState,
+                proxyUrl,
+            });
+            accountDiagnostic.sessionValidated = true;
+            accountDiagnostic.authenticatedSession = validation.isAuthenticated;
+            accountDiagnostic.observedPageUrl = validation.pageUrl;
+            accountDiagnostic.observedPageTitle = validation.pageTitle;
+            accountDiagnostic.debugHtmlRecordKey = validation.debugHtmlRecordKey;
+            accountDiagnostic.debugScreenshotRecordKey = validation.debugScreenshotRecordKey;
+
+            if (!validation.isAuthenticated) {
+                accountDiagnostic.outcome = 'invalid_session';
+                accountDiagnostic.warning = `Persisted session for @${account.username} is no longer accepted by Instagram. ${validation.reason ?? ''}`.trim();
+                warnings.push(accountDiagnostic.warning);
+                await sessionStore.setValue(buildOperatorSessionKey(account), null);
+                accountDiagnostics.push(accountDiagnostic);
+                log.warning(accountDiagnostic.warning);
+                continue;
+            }
+
             readyAccounts.push({
                 username: account.username,
                 sessionKey,
-                storageState: persistedState.storageState,
+                storageState: validation.storageState,
                 proxyUrl,
                 sessionSource: 'reused',
             });
@@ -399,17 +572,38 @@ export async function prepareOperatorResources(input: {
                 continue;
             }
 
+            const validation = await validateOperatorSession({
+                account,
+                storageState,
+                proxyUrl,
+            });
+            accountDiagnostic.sessionValidated = true;
+            accountDiagnostic.authenticatedSession = validation.isAuthenticated;
+            accountDiagnostic.observedPageUrl = validation.pageUrl;
+            accountDiagnostic.observedPageTitle = validation.pageTitle;
+            accountDiagnostic.debugHtmlRecordKey = validation.debugHtmlRecordKey;
+            accountDiagnostic.debugScreenshotRecordKey = validation.debugScreenshotRecordKey;
+
+            if (!validation.isAuthenticated) {
+                accountDiagnostic.outcome = 'invalid_session';
+                accountDiagnostic.warning = `Instagram bootstrap for @${account.username} completed but the resulting session was not authenticated. ${validation.reason ?? ''}`.trim();
+                warnings.push(accountDiagnostic.warning);
+                accountDiagnostics.push(accountDiagnostic);
+                log.warning(accountDiagnostic.warning);
+                continue;
+            }
+
             const persistedSession: PersistedOperatorSessionState = {
                 username: account.username,
                 sessionKey,
                 savedAt: new Date().toISOString(),
-                storageState,
+                storageState: validation.storageState,
             };
             await sessionStore.setValue(buildOperatorSessionKey(account), persistedSession);
             readyAccounts.push({
                 username: account.username,
                 sessionKey,
-                storageState,
+                storageState: validation.storageState,
                 proxyUrl,
                 sessionSource: 'bootstrapped',
             });
@@ -466,11 +660,19 @@ export async function expandRootGraphWithOperatorResources(input: {
     const { actorInput, targetUsername, biography, preparedResources } = input;
     const warnings: string[] = [];
     const bioLinkedUsernames = new Set<string>(extractMentionedUsernames(biography));
+    let profilePageUrl: string | null = null;
+    let profilePageTitle: string | null = null;
+    let debugHtmlRecordKey: string | null = null;
+    let debugScreenshotRecordKey: string | null = null;
 
     const primaryAccount = preparedResources.readyAccounts[0];
     if (!primaryAccount) {
         log.warning(`Root graph expansion skipped for @${targetUsername}: no operator session is ready.`);
         return {
+            profilePageUrl,
+            profilePageTitle,
+            debugHtmlRecordKey,
+            debugScreenshotRecordKey,
             bioLinkedUsernames: [...bioLinkedUsernames],
             followersUsernames: [],
             followingUsernames: [],
@@ -495,9 +697,21 @@ export async function expandRootGraphWithOperatorResources(input: {
                 timeout: 60_000,
             });
             await page.waitForTimeout(3_000);
+            profilePageUrl = page.url();
+            profilePageTitle = await page.title().catch(() => '');
             const pageText = await page.locator('body').innerText().catch(() => '');
             for (const username of extractMentionedUsernames(pageText)) {
                 bioLinkedUsernames.add(username);
+            }
+
+            if (bioLinkedUsernames.size === 0) {
+                const artifacts = await persistOperatorDebugArtifacts({
+                    username: primaryAccount.username,
+                    suffix: 'graph-root-profile',
+                    page,
+                });
+                debugHtmlRecordKey = artifacts.htmlRecordKey;
+                debugScreenshotRecordKey = artifacts.screenshotRecordKey;
             }
         } finally {
             await browser.close();
@@ -539,6 +753,10 @@ export async function expandRootGraphWithOperatorResources(input: {
     }
 
     return {
+        profilePageUrl,
+        profilePageTitle,
+        debugHtmlRecordKey,
+        debugScreenshotRecordKey,
         bioLinkedUsernames: [...bioLinkedUsernames],
         followersUsernames,
         followingUsernames,
