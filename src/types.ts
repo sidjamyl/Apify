@@ -31,8 +31,9 @@ export interface ProxyConfigurationInput {
 
 export interface OperatorAccountInput {
     username: string;
-    password: string;
+    password?: string;
     sessionKey?: string;
+    sessionId?: string;
 }
 
 export interface GraphExpansionInput {
@@ -212,6 +213,7 @@ export interface OperatorResourcesSummary {
     readiness: 'not_configured' | 'proxy_missing' | 'not_ready' | 'partial' | 'ready';
     configuredAccounts: number;
     readyAccounts: number;
+    providedSessions: number;
     reusedSessions: number;
     bootstrappedSessions: number;
     proxyConfigured: boolean;
@@ -236,8 +238,8 @@ export interface OperatorAccountDiagnostic {
     sessionKey: string;
     hadPersistedSession: boolean;
     proxyUrlGenerated: boolean;
-    sessionSource: 'reused' | 'bootstrapped' | null;
-    outcome: 'reused_session' | 'bootstrapped_session' | 'bootstrap_failed' | 'proxy_unavailable' | 'proxy_configuration_unavailable';
+    sessionSource: 'provided' | 'reused' | 'bootstrapped' | null;
+    outcome: 'provided_session' | 'reused_session' | 'bootstrapped_session' | 'bootstrap_failed' | 'missing_credentials' | 'proxy_unavailable' | 'proxy_configuration_unavailable';
     warning: string | null;
 }
 

@@ -109,6 +109,24 @@ describe('input parsing', () => {
             },
         });
     });
+
+    it('accepts operator accounts with sessionId and no password', () => {
+        expect(parseInput({
+            username: 'NASA',
+            operatorAccounts: [{ username: '@Operator.One', sessionId: 'abc123', sessionKey: 'sticky-1' }],
+        })).toEqual({
+            username: 'nasa',
+            runMode: 'backfill',
+            maxDiscoveryCycles: 5,
+            operatorAccounts: [{ username: 'operator.one', password: undefined, sessionId: 'abc123', sessionKey: 'sticky-1' }],
+            proxyConfiguration: null,
+            graphExpansion: {
+                maxFollowersToInspect: 25,
+                maxFollowingToInspect: 25,
+                maxExpandedProfiles: 20,
+            },
+        });
+    });
 });
 
 describe('comment utilities', () => {

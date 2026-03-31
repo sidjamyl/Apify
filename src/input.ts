@@ -18,23 +18,33 @@ function parseOperatorAccounts(rawValue: unknown): OperatorAccountInput[] {
         const username = Reflect.get(rawAccount, 'username');
         const password = Reflect.get(rawAccount, 'password');
         const sessionKey = Reflect.get(rawAccount, 'sessionKey');
+        const sessionId = Reflect.get(rawAccount, 'sessionId');
 
         if (typeof username !== 'string' || username.trim().length === 0) {
             throw new Error(`Input.operatorAccounts[${index}].username must be a non-empty string.`);
         }
 
-        if (typeof password !== 'string' || password.length === 0) {
-            throw new Error(`Input.operatorAccounts[${index}].password must be a non-empty string.`);
+        if (password != null && (typeof password !== 'string' || password.length === 0)) {
+            throw new Error(`Input.operatorAccounts[${index}].password must be a non-empty string when provided.`);
         }
 
         if (sessionKey != null && (typeof sessionKey !== 'string' || sessionKey.trim().length === 0)) {
             throw new Error(`Input.operatorAccounts[${index}].sessionKey must be a non-empty string when provided.`);
         }
 
+        if (sessionId != null && (typeof sessionId !== 'string' || sessionId.trim().length === 0)) {
+            throw new Error(`Input.operatorAccounts[${index}].sessionId must be a non-empty string when provided.`);
+        }
+
+        if ((typeof password !== 'string' || password.length === 0) && (typeof sessionId !== 'string' || sessionId.trim().length === 0)) {
+            throw new Error(`Input.operatorAccounts[${index}] must include either password or sessionId.`);
+        }
+
         return {
             username: normalizeUsername(username),
-            password,
+            password: typeof password === 'string' ? password : undefined,
             sessionKey: typeof sessionKey === 'string' ? sessionKey.trim() : undefined,
+            sessionId: typeof sessionId === 'string' ? sessionId.trim() : undefined,
         };
     });
 }

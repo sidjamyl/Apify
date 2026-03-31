@@ -20,7 +20,7 @@ interface PreparedOperatorAccount {
     sessionKey: string;
     storageState: StorageState;
     proxyUrl: string;
-    sessionSource: 'reused' | 'bootstrapped';
+    sessionSource: 'provided' | 'reused' | 'bootstrapped';
 }
 
 export interface PreparedOperatorResources {
@@ -47,6 +47,22 @@ function normalizeProxySessionId(sessionKey: string): string {
 
 function hasSessionCookie(storageState: StorageState): boolean {
     return storageState.cookies.some((cookie: StorageState['cookies'][number]) => cookie.name === 'sessionid' && cookie.value.length > 0);
+}
+
+function buildStorageStateFromSessionId(sessionId: string): StorageState {
+    return {
+        cookies: [{
+            name: 'sessionid',
+            value: sessionId,
+            domain: '.instagram.com',
+            path: '/',
+            expires: -1,
+            httpOnly: true,
+            secure: true,
+            sameSite: 'Lax',
+        }],
+        origins: [],
+    };
 }
 
 function toPlaywrightProxy(proxyUrl: string): { server: string; username?: string; password?: string } {
@@ -95,7 +111,7 @@ async function dismissInstagramCookieBanner(page: Page): Promise<void> {
 }
 
 async function bootstrapOperatorSession(input: {
-    account: OperatorAccountInput;
+    account: OperatorAccountInput & { password: string };
     proxyUrl: string;
 }): Promise<StorageState | null> {
     const { account, proxyUrl } = input;
@@ -212,6 +228,7 @@ export async function prepareOperatorResources(input: {
                 readiness: 'not_configured',
                 configuredAccounts: 0,
                 readyAccounts: 0,
+                providedSessions: 0,
                 reusedSessions: 0,
                 bootstrappedSessions: 0,
                 proxyConfigured: false,
@@ -235,6 +252,7 @@ export async function prepareOperatorResources(input: {
                 readiness: 'proxy_missing',
                 configuredAccounts: actorInput.operatorAccounts.length,
                 readyAccounts: 0,
+                providedSessions: 0,
                 reusedSessions: 0,
                 bootstrappedSessions: 0,
                 proxyConfigured: false,
@@ -278,6 +296,7 @@ export async function prepareOperatorResources(input: {
 
     const readyAccounts: PreparedOperatorAccount[] = [];
     const accountDiagnostics: OperatorAccountDiagnostic[] = [];
+    let providedSessions = 0;
     let reusedSessions = 0;
     let bootstrappedSessions = 0;
 
@@ -312,6 +331,30 @@ export async function prepareOperatorResources(input: {
         }
         accountDiagnostic.proxyUrlGenerated = true;
 
+        if (account.sessionId) {
+            const storageState = buildStorageStateFromSessionId(account.sessionId);
+            const persistedSession: PersistedOperatorSessionState = {
+                username: account.username,
+                sessionKey,
+                savedAt: new Date().toISOString(),
+                storageState,
+            };
+            await sessionStore.setValue(buildOperatorSessionKey(account), persistedSession);
+            readyAccounts.push({
+                username: account.username,
+                sessionKey,
+                storageState,
+                proxyUrl,
+                sessionSource: 'provided',
+            });
+            accountDiagnostic.sessionSource = 'provided';
+            accountDiagnostic.outcome = 'provided_session';
+            accountDiagnostics.push(accountDiagnostic);
+            providedSessions += 1;
+            log.info(`Operator resource @${account.username}: using provided Instagram sessionId.`);
+            continue;
+        }
+
         if (persistedState?.storageState && hasSessionCookie(persistedState.storageState)) {
             readyAccounts.push({
                 username: account.username,
@@ -328,10 +371,22 @@ export async function prepareOperatorResources(input: {
             continue;
         }
 
+        if (!account.password) {
+            accountDiagnostic.outcome = 'missing_credentials';
+            accountDiagnostic.warning = `Operator account @${account.username} has no sessionId and no password for UI bootstrap.`;
+            warnings.push(accountDiagnostic.warning);
+            accountDiagnostics.push(accountDiagnostic);
+            log.warning(accountDiagnostic.warning);
+            continue;
+        }
+
         try {
             log.info(`Operator resource @${account.username}: attempting Instagram session bootstrap.`);
             const storageState = await bootstrapOperatorSession({
-                account,
+                account: {
+                    ...account,
+                    password: account.password,
+                },
                 proxyUrl,
             });
 
@@ -384,6 +439,7 @@ export async function prepareOperatorResources(input: {
             readiness,
             configuredAccounts: actorInput.operatorAccounts.length,
             readyAccounts: readyAccounts.length,
+            providedSessions,
             reusedSessions,
             bootstrappedSessions,
             proxyConfigured: true,

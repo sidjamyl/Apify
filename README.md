@@ -73,8 +73,17 @@ It does not need to match any operator account.
 
 - bootstrap reusable sessions
 - reuse prior session state
+- use a provided `sessionid` directly when you already have a valid Instagram session
 - inspect session-visible root graph surfaces
 - expand discovery through follower / following roots and bio-linked pivots
+
+Recommended order of reliability for operator auth:
+
+1. provide a valid `sessionId`
+2. reuse a previously persisted session
+3. fall back to UI login with `password`
+
+If you can provide a valid Instagram `sessionid`, it is usually more stable than asking the Actor to navigate the login form.
 
 ### Proxy configuration
 

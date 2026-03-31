@@ -48,10 +48,15 @@
 						"type": "string",
 						"description": "Instagram username of the legitimate operator account used as an execution resource."
 					},
+					"sessionId": {
+						"title": "Instagram sessionid",
+						"type": "string",
+						"description": "Optional Instagram `sessionid` cookie value. When provided, the Actor will prefer this existing session over the fragile UI login flow."
+					},
 					"password": {
 						"title": "Operator password",
 						"type": "string",
-						"description": "Password for the operator account so the Actor can bootstrap and persist a reusable session."
+						"description": "Optional password used only when no `sessionId` is provided and the Actor has to bootstrap the session through the Instagram login form."
 					},
 					"sessionKey": {
 						"title": "Sticky session key",
@@ -59,12 +64,12 @@
 						"description": "Optional stable session key used to tie the operator account to a persistent proxy/session identity."
 					}
 				},
-				"required": ["username", "password"]
+				"required": ["username"]
 			},
 			"prefill": [
 				{
 					"username": "research_operator",
-					"password": "<secret>",
+					"sessionId": "<instagram_sessionid_cookie>",
 					"sessionKey": "op-1"
 				}
 			]
